@@ -24,10 +24,10 @@ variables:
   - &init_custom_func |
     [ -f '.gitlab-ci.sh' ] && . '.gitlab-ci.sh';
     do_func_invoke 'define_custom_init'
-  - &build_custom_func  do_func_invoke 'define_custom_build'
-  - &upload_custom_func do_func_invoke 'define_custom_upload'
-  - &deploy_custom_func do_func_invoke 'define_custom_deploy'
-  - &verify_custom_func do_func_invoke 'define_custom_verify'
+  - &build_custom_func  do_func_invoke "ci_bash_inject_do"; do_func_invoke 'define_custom_build'
+  - &upload_custom_func do_func_invoke "ci_bash_inject_do"; do_func_invoke 'define_custom_upload'
+  - &deploy_custom_func do_func_invoke "cd_bash_inject_do"; do_func_invoke 'define_custom_deploy'
+  - &verify_custom_func do_func_invoke "cd_bash_inject_do"; do_func_invoke 'define_custom_verify'
 
 .common_layer_functions:
   - &init_common_func |
