@@ -8,7 +8,7 @@
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=.m2"
 
-.rules01: &rules_if_develop $CI_COMMIT_REF_NAME == '--'
+.rules01: &rules_if_develop $CI_COMMIT_REF_NAME == 'develop'
 .rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/
 
 .image01: &image_for_deploy { image: 'maven:3.8.1-openjdk-11' }
@@ -21,7 +21,9 @@ variables:
 #===============================================================================
 
 .custom_layer_functions:
-  - &init_custom_func   source .gitlab-ci.sh 2>/dev/null; do_func_invoke 'define_custom_init'
+  - &init_custom_func |
+    [ -f '.gitlab-ci.sh' ] && . '.gitlab-ci.sh';
+    do_func_invoke 'define_custom_init'
   - &build_custom_func  do_func_invoke 'define_custom_build'
   - &upload_custom_func do_func_invoke 'define_custom_upload'
   - &deploy_custom_func do_func_invoke 'define_custom_deploy'
@@ -29,7 +31,7 @@ variables:
 
 .common_layer_functions:
   - &init_common_func |
-    source <(curl -s https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/1.0/.gitlab-ci.lib.sh);
+    . <(curl -s https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/1.0/.gitlab-ci.lib.sh);
     define_common_init
   - &init_ssh_common_func define_common_init_ssh
   - &build_common_func    define_common_build
@@ -47,22 +49,24 @@ stages: [ plan, build, deploy, verify ]
   before_script:
     - *init_common_func
     - *init_custom_func
-    - *build_common_func
-    - *build_custom_func
     - init_first_do
   script:
     - init_final_do
+    - *build_common_func
+    - *build_custom_func
     - build_job_do
 
 .build_then_upload: &build_then_upload
   <<: *build_only
   script:
     - *init_ssh_common_func
-    - *upload_common_func
-    - *upload_custom_func
     - init_ssh_do
     - init_final_do
+    - *build_common_func
+    - *build_custom_func
     - build_job_do
+    - *upload_common_func
+    - *upload_custom_func
     - upload_job_do
 
 .deploy_with_ssh: &deploy_with_ssh
@@ -79,8 +83,8 @@ stages: [ plan, build, deploy, verify ]
   <<: *deploy_with_ssh
   script:
     - *deploy_common_func
-    - *deploy_custom_func
     - init_final_do
+    - *deploy_custom_func
     - deploy_job_do
   allow_failure: true
 
@@ -89,8 +93,8 @@ stages: [ plan, build, deploy, verify ]
   <<: *deploy_with_ssh
   script:
     - *verify_common_func
-    - *verify_custom_func
     - init_final_do
+    - *verify_custom_func
     - verify_job_do
   allow_failure: true
 

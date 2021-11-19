@@ -6,23 +6,27 @@ set -e
 
 build_job_do() {
   do_print_section 'BUILD JOB BEGIN'
+  do_func_invoke "ci_bash_inject_do"
   do_func_invoke "build_custom_do"
   do_print_section 'BUILD JOB DONE!' && echo ''
 }
 upload_job_do() {
   do_print_section 'UPLOAD JOB BEGIN'
   do_upload_cleanup_local
+  do_func_invoke "ci_bash_inject_do"
   do_func_invoke "upload_custom_do"
   do_print_section 'UPLOAD JOB DONE!' && echo ''
 }
 deploy_job_do() {
   do_print_section 'DEPLOY JOB BEGIN'
+  do_func_invoke "cd_bash_inject_do"
   do_func_invoke "deploy_custom_do"
   do_func_invoke "deploy_${ENV_NAME:?}_do"
   do_print_section 'DEPLOY JOB DONE!' && echo ''
 }
 verify_job_do() {
   do_print_section 'VERIFY JOB BEGIN'
+  do_func_invoke "cd_bash_inject_do"
   do_func_invoke "verify_custom_do"
   do_func_invoke "verify_${ENV_NAME:?}_do"
   do_print_section 'VERIFY JOB DONE!' && echo ''
