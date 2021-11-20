@@ -140,6 +140,41 @@ define_common_init_ssh() {
     local _ssh="ssh ${SSH_DEBUG_OPTIONS}"
     _uid=$($_ssh "$_user_host" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
   }
+  do_ssh_vault_env_inject() {
+    local _type='env'
+    if [ -z "${VAULT_URL}" ]; then return; fi
+    if [ -z "${VAULT_TOKEN}" ]; then return; fi
+    do_print_info "# ${FUNCNAME[0]}"
+    local _customer=${CUSTOMER:=${CUSTOMER_NAME}}
+    local _url="${VAULT_URL:?}/gitlab/${CI_PROJECT_NAME:?}/${_customer}-$_type"
+    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
+    do_print_info "# fetch from vault: ${_url}"
+    VAULT_INJECTED_ENV=$($_ssh "
+      jq -r '.data | to_entries[] | \"export \(.key)=\\\"\(.value)\\\";\"' \
+      <<<\$(curl -s \"$_url\" -H \"X-Vault-Token: ${VAULT_TOKEN}\") 2>/dev/null
+      echo \"# exit with \$?\"
+    ")
+    export VAULT_INJECTED_ENV
+    eval "${VAULT_INJECTED_ENV}"
+  }
+  do_ssh_vault_bash_inject() {
+    local _type=${1:?}
+    if [ -z "${VAULT_URL}" ]; then return; fi
+    if [ -z "${VAULT_TOKEN}" ]; then return; fi
+    do_print_info "# ${FUNCNAME[0]}"
+    local _customer=${CUSTOMER:=${CUSTOMER_NAME}}
+    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${_customer}-$_type"
+    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
+    do_print_info "# fetch from vault: ${_url}"
+    # shellcheck disable=SC1090
+    . <($_ssh "
+      _code=\$(jq -r \".data.BASH_FILE\" \
+      <<<\$(curl -s \"$_url\" -H \"X-Vault-Token: ${VAULT_TOKEN}\") 2>/dev/null)
+      echo \"# exit with \$?\"
+      _code=\$(echo \"\${_code}\" | xargs)
+      if [[ \"null\" == \"\$_code\" ]]; then echo ''; else echo \"\$_code\"; fi
+    ")
+  }
   init_ssh_do() {
     local _pri_line
     if [[ -z "${SSH_USER}" && -n "${SSH_USER_PREFIX}" ]]; then
@@ -153,6 +188,7 @@ define_common_init_ssh() {
     do_print_dash_pair 'SSH_KNOWN_HOSTS' "${SSH_KNOWN_HOSTS:0:60}**"
     _ssh_agent_init
     _ssh_add_user_default
+    do_ssh_vault_env_inject
   }
   _ssh_add_user_default() {
     ARG_SSH_USER=${SSH_USER:?}
