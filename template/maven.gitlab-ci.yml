@@ -6,28 +6,19 @@
 #==============================================================================
 
 variables:
+  CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
   MAVEN_OPTS: "-Dmaven.repo.local=.m2"
-
-.rules01: &rules_if_develop $CI_COMMIT_REF_NAME == 'develop'
-.rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/
 
 .image01: &image_for_deploy { image: 'maven:3.8.1-openjdk-11' }
 .image02: &image_for_build  { image: 'maven:3.8.1-openjdk-11' }
 .cache01: &build_runner_cache
   <<: *image_for_build
-  cache: { policy: pull-push, untracked: false, paths: [ ".m2/" ],
-           key: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_TITLE}", }
+  cache: { policy: pull-push, untracked: false, paths: [ ".m2/" ], key: $CACHE_KEY }
+
+.rules01: &rules_if_develop $CI_COMMIT_REF_NAME == 'develop'
+.rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/
 
 #===============================================================================
-
-.custom_layer_functions:
-  - &init_custom_func |
-    [ -f '.gitlab-ci.sh' ] && . '.gitlab-ci.sh';
-    do_func_invoke 'define_custom_init'
-  - &build_custom_func  do_func_invoke "ci_bash_inject_do"; do_func_invoke 'define_custom_build'
-  - &upload_custom_func do_func_invoke "ci_bash_inject_do"; do_func_invoke 'define_custom_upload'
-  - &deploy_custom_func do_func_invoke "cd_bash_inject_do"; do_func_invoke 'define_custom_deploy'
-  - &verify_custom_func do_func_invoke "cd_bash_inject_do"; do_func_invoke 'define_custom_verify'
 
 .common_layer_functions:
   - &init_common_func |
@@ -38,6 +29,14 @@ variables:
   - &upload_common_func   define_common_upload
   - &deploy_common_func   define_common_service; define_common_deploy
   - &verify_common_func   define_common_service; define_common_verify
+
+.custom_layer_functions:
+  - &init_custom_func |
+    [ -f '.gitlab-ci.sh' ] && . '.gitlab-ci.sh'; do_func_invoke 'define_custom_init'
+  - &build_custom_func  do_func_invoke "ci_bash_inject_do"; do_func_invoke 'define_custom_build'
+  - &upload_custom_func do_func_invoke 'define_custom_upload'
+  - &deploy_custom_func do_func_invoke "cd_bash_inject_do"; do_func_invoke 'define_custom_deploy'
+  - &verify_custom_func do_func_invoke "cd_bash_inject_do"; do_func_invoke 'define_custom_verify'
 
 #===============================================================================
 
