@@ -499,9 +499,9 @@ define_common_deploy() {
     local _suffix_env
     _suffix_env="$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
     _var_name="VAULT_URL_${_suffix_env}"
-    REAL_VAULT_URL="${!_var_name:-${VAULT_URL:-'#'}}/${SERVICE_GROUP:?}"
+    REAL_VAULT_URL="${!_var_name:-${VAULT_URL}}/${SERVICE_GROUP:?}"
     _var_name="VAULT_TOKEN_${_suffix_env}"
-    REAL_VAULT_TOKEN="${!_var_name:-${VAULT_TOKEN:-'*'}}"
+    REAL_VAULT_TOKEN="${!_var_name:-${VAULT_TOKEN}}"
     $_u_ssh "
     ${DECLARE_DO_TRACE}
     if [ ! -d '$_local_dir' ]; then
@@ -515,16 +515,18 @@ define_common_deploy() {
     $_scp '$_local_dir/'* ${SERVICE_USER_HOST}:$_remote_dir/
     $_d_ssh $'
       ${DECLARE_DO_TRACE}
+      do_trace \'- replace ${DEPLOY_ENV_SRC}\'
       [ -f \'${DEPLOY_ENV_SRC}\' ] && (
         _eth0_ipv4=\$(/usr/sbin/ifconfig eth0 | grep \'inet \'| awk \'{print \$2}\')
         sed -i -e \'s|#DEPLOY_ENV_NAME|${ENV_NAME:?}|g\'              ${DEPLOY_ENV_SRC}
         sed -i -e \"s|#DEPLOY_HOST_IP|\$_eth0_ipv4|g\"                ${DEPLOY_ENV_SRC}
         sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR:?}|g\' ${DEPLOY_ENV_SRC}
-        sed -i -e \'s|#VAULT_URL|${REAL_VAULT_URL:?}|g\'              ${DEPLOY_ENV_SRC}
-        sed -i -e \'s|#VAULT_TOKEN|${REAL_VAULT_TOKEN:?}|g\'          ${DEPLOY_ENV_SRC}
+        sed -i -e \"s|#VAULT_URL|${REAL_VAULT_URL}|g\"                ${DEPLOY_ENV_SRC}
+        sed -i -e \"s|#VAULT_TOKEN|${REAL_VAULT_TOKEN}|g\"            ${DEPLOY_ENV_SRC}
       )
+      do_trace \'- replace ${DEPLOY_YML_SRC}\'
       [ -f \'${DEPLOY_YML_SRC}\' ] && (
-        sed -i -e \'s|#CONTAINER_VERSION_MOUNT|${CONTAINER_VERSION_MOUNT:?}|g\' ${DEPLOY_YML_SRC}
+        sed -i -e \'s|#CONTAINER_VERSION_MOUNT|${CONTAINER_VERSION_MOUNT:?}|g\'       ${DEPLOY_YML_SRC}
         sed -i -e \'s|#CONTAINER_ENTRYPOINT_MOUNT|${CONTAINER_ENTRYPOINT_MOUNT:?}|g\' ${DEPLOY_YML_SRC}
       )
       do_trace \'# find $_remote_dir\'
