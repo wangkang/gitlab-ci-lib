@@ -137,18 +137,15 @@ define_common_init_ssh() {
       do_print_info 'SSH ADD USER OK (same as default user)'
       return
     fi
-    local _pri_line
-    _pri_line=$(echo "${ARG_SSH_PRIVATE_KEY}" | tr -d '\n')
-    do_print_dash_pair 'Gitlab Custom Variables (ssh)'
     do_print_dash_pair 'SSH_USER_HOST' "${_user_host}"
+    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && do_print_dash_pair 'SSH_KNOWN_HOSTS' "${ARG_SSH_KNOWN_HOSTS:0:60}**"
     [ -n "${ARG_SSH_PRIVATE_KEY}" ] && (
+      local _pri_line
+      _pri_line=$(echo "${ARG_SSH_PRIVATE_KEY}" | tr -d '\n')
       do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60}**"
-      _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
     )
-    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && (
-      do_print_dash_pair 'SSH_KNOWN_HOSTS' "${ARG_SSH_KNOWN_HOSTS:0:60}**"
-      _ssh_add_known "${ARG_SSH_KNOWN_HOSTS}"
-    )
+    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && _ssh_add_known "${ARG_SSH_KNOWN_HOSTS}"
+    [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
     local _uid='-1'
     local _ssh="ssh ${SSH_DEBUG_OPTIONS}"
     _uid=$($_ssh "$_user_host" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
