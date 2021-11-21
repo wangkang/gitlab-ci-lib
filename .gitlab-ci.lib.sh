@@ -89,6 +89,16 @@ define_common_init() {
     do_func_invoke 'init_final_custom_do'
     do_print_section 'INIT ALL DONE!' && echo ''
   }
+  init_inject_ci_bash_do() {
+    local _func_name='do_ssh_vault_bash_inject'
+    if [[ $(type -t "${_func_name}") != function ]]; then return; fi
+    do_ssh_vault_bash_inject 'ci'
+  }
+  init_inject_cd_bash_do() {
+    local _func_name='do_ssh_vault_bash_inject'
+    if [[ $(type -t "${_func_name}") != function ]]; then return; fi
+    do_ssh_vault_bash_inject 'cd'
+  }
   _init_env_var() {
     CUSTOMER=${CUSTOMER:-${CUSTOMER_NAME:-none}}
     ENV_NAME=${ENV_NAME:-none}
