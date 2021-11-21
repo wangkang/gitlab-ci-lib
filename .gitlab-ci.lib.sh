@@ -189,8 +189,8 @@ define_common_init_ssh() {
       _code=\$(jq -r \".data.BASH_FILE\" \
       <<<\$(curl -s \"$_url\" -H \"X-Vault-Token: ${VAULT_TOKEN}\") 2>/dev/null)
       echo \"# exit with \$?\"
-      _code=\$(echo \"\${_code}\" | xargs)
-      if [[ \"null\" == \"\$_code\" ]]; then echo ''; else echo \"\$_code\"; fi
+      _code=\$(echo \"\${_code}\" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      if [[ 'null' == \"\$_code\" ]]; then echo ''; else echo \"\$_code\"; fi
     ")
   }
   init_ssh_do() {
