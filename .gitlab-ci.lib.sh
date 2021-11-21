@@ -81,7 +81,7 @@ define_common_init() {
   init_first_do() {
     do_func_invoke 'init_first_custom_do'
     do_print_section 'INIT ALL BEGIN'
-    _print_env_var
+    _init_env_var
     _init_version_tag
     do_print_dash_pair
   }
@@ -89,9 +89,12 @@ define_common_init() {
     do_func_invoke 'init_final_custom_do'
     do_print_section 'INIT ALL DONE!' && echo ''
   }
-  _print_env_var() {
+  _init_env_var() {
+    CUSTOMER=${CUSTOMER:-${CUSTOMER_NAME:-none}}
+    ENV_NAME=${ENV_NAME:-none}
+    do_print_dash_pair 'CUSTOMER' "${CUSTOMER}"
+    do_print_dash_pair 'ENV_NAME' "${ENV_NAME}"
     do_print_dash_pair 'CI_COMMIT_REF_NAME' "${CI_COMMIT_REF_NAME}"
-    do_print_dash_pair 'ENV_NAME' "${ENV_NAME:?}"
   }
   _init_ci_tag() {
     [[ -z "${CI_COMMIT_TAG}" ]] && CI_COMMIT_TAG=${CI_COMMIT_SHORT_SHA}
@@ -145,8 +148,7 @@ define_common_init_ssh() {
     if [ -z "${VAULT_URL}" ]; then return; fi
     if [ -z "${VAULT_TOKEN}" ]; then return; fi
     do_print_info "# ${FUNCNAME[0]}"
-    local _customer=${CUSTOMER:=${CUSTOMER_NAME}}
-    local _url="${VAULT_URL:?}/gitlab/${CI_PROJECT_NAME:?}/${_customer}-$_type"
+    local _url="${VAULT_URL:?}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
     local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
     do_print_info "# fetch from vault: ${_url}"
     VAULT_INJECTED_ENV=$($_ssh "
@@ -162,8 +164,7 @@ define_common_init_ssh() {
     if [ -z "${VAULT_URL}" ]; then return; fi
     if [ -z "${VAULT_TOKEN}" ]; then return; fi
     do_print_info "# ${FUNCNAME[0]}"
-    local _customer=${CUSTOMER:=${CUSTOMER_NAME}}
-    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${_customer}-$_type"
+    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
     local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
     do_print_info "# fetch from vault: ${_url}"
     # shellcheck disable=SC1090
