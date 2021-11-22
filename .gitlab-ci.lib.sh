@@ -101,14 +101,14 @@ define_common_init() {
     do_print_section 'INIT ALL DONE!' && echo ''
   }
   init_inject_ci_bash_do() {
-    local _func_name='do_ssh_vault_bash_inject'
+    local _func_name='_ssh_vault_bash_inject'
     if [[ $(type -t "${_func_name}") != function ]]; then return; fi
-    do_ssh_vault_bash_inject 'ci'
+    _ssh_vault_bash_inject 'ci'
   }
   init_inject_cd_bash_do() {
-    local _func_name='do_ssh_vault_bash_inject'
+    local _func_name='_ssh_vault_bash_inject'
     if [[ $(type -t "${_func_name}") != function ]]; then return; fi
-    do_ssh_vault_bash_inject 'cd'
+    _ssh_vault_bash_inject 'cd'
   }
   _init_env_var() {
     CUSTOMER=${CUSTOMER:-${CUSTOMER_NAME:-none}}
@@ -171,38 +171,45 @@ define_common_init_ssh() {
     local _ssh="ssh ${SSH_DEBUG_OPTIONS}"
     _uid=$($_ssh "$_user_host" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
   }
-  do_ssh_vault_env_inject() {
-    local _type='env'
-    if [ -z "${VAULT_URL}" ]; then return; fi
-    if [ -z "${VAULT_TOKEN}" ]; then return; fi
-    do_print_info "# ${FUNCNAME[0]}"
-    local _url="${VAULT_URL:?}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
+  do_ssh_vault_env_file() {
+    local _url="${1:?}"
+    local _token="${2:?}"
     local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
-    do_print_info "# fetch from vault: ${_url}"
-    VAULT_INJECTED_ENV=$($_ssh "
-      jq -r '.data | to_entries[] | \"export \(.key)=\\\"\(.value)\\\";\"' \
-      <<<\$(curl -s \"$_url\" -H \"X-Vault-Token: ${VAULT_TOKEN}\") 2>/dev/null
-      echo \"# exit with \$?\"
-    ")
-    export VAULT_INJECTED_ENV
-    eval "${VAULT_INJECTED_ENV}"
+    $_ssh "
+      echo \"# fetch from vault: ${_url}\"
+      if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+      jq -r '.data | to_entries[] | \"\(.key)=\(.value)\"' \
+      <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
+      echo \"# fetch from vault exit status \$?\"
+    "
   }
-  do_ssh_vault_bash_inject() {
-    local _type=${1:?}
-    if [ -z "${VAULT_URL}" ]; then return; fi
-    if [ -z "${VAULT_TOKEN}" ]; then return; fi
-    do_print_info "# ${FUNCNAME[0]}"
-    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
+  do_ssh_vault_env_exports() {
+    local _url="${1:?}"
+    local _token="${2:?}"
     local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
-    do_print_info "# fetch from vault: ${_url}"
-    # shellcheck disable=SC1090
-    . <($_ssh "
-      _code=\$(jq -r \".data.BASH_FILE\" \
-      <<<\$(curl -s \"$_url\" -H \"X-Vault-Token: ${VAULT_TOKEN}\") 2>/dev/null)
-      echo \"# exit with \$?\"
+    $_ssh "
+      echo \"# fetch from vault: ${_url}\"
+      if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+      jq -r '.data | to_entries[] | \"export \(.key)=\\\"\(.value)\\\";\"' \
+      <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
+      echo \"# fetch from vault exit status \$?\"
+    "
+  }
+  do_ssh_vault_bash_file() {
+    local _url="${1:?}"
+    local _token="${2:?}"
+    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
+    $_ssh "
+      echo \"# fetch from vault: ${_url}\"
+      if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+      _code=\$(
+        jq -r \".data.BASH_FILE\" \
+        <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
+      )
+      echo \"# fetch from vault exit status \$?\"
       _code=\$(echo \"\${_code}\" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')
-      if [[ 'null' == \"\$_code\" ]]; then echo ''; else echo \"\$_code\"; fi
-    ")
+      if [[ 'null' != \"\$_code\" ]]; then echo \"\$_code\"; fi
+    "
   }
   init_ssh_do() {
     local _pri_line
@@ -211,7 +218,7 @@ define_common_init_ssh() {
     fi
     _ssh_agent_init
     _ssh_add_user_default
-    do_ssh_vault_env_inject
+    _ssh_vault_env_inject
   }
   _ssh_add_user_default() {
     ARG_SSH_USER=${SSH_USER:?}
@@ -245,6 +252,28 @@ define_common_init_ssh() {
     touch ~/.ssh/known_hosts
     chmod 644 ~/'.ssh/known_hosts'
     chmod 700 ~/'.ssh'
+  }
+  _ssh_vault_env_inject() {
+    local _type='env'
+    if [ -z "${VAULT_URL}" ]; then return; fi
+    if [ -z "${VAULT_TOKEN}" ]; then return; fi
+    do_print_info "# ${FUNCNAME[0]}"
+    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
+    _code="$(do_ssh_vault_env_exports "${_url}" "${VAULT_TOKEN}")"
+    #do_print_info "${_code}"
+    do_print_info "- injection line count: $(echo "${_code}" | wc -l)"
+    eval "${_code}"
+  }
+  _ssh_vault_bash_inject() {
+    local _type=${1:?}
+    if [ -z "${VAULT_URL}" ]; then return; fi
+    if [ -z "${VAULT_TOKEN}" ]; then return; fi
+    do_print_info "# ${FUNCNAME[0]}"
+    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
+    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
+    do_print_info "# fetch from vault: ${_url}"
+    # shellcheck disable=SC1090
+    . <(do_ssh_vault_bash_file "$_url" "${VAULT_TOKEN}")
   }
 } # define_common_init_ssh
 
@@ -491,6 +520,7 @@ define_common_deploy() {
     SERVICE_NAME="${1:-${SERVICE_NAME:?}}"
     SERVICE_GROUP="${2:-${SERVICE_GROUP:?}}"
     SERVICE_NAME_LOWER="$(echo "${SERVICE_NAME:?}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
+    SERVICE_GROUP_LOWER="$(echo "${SERVICE_GROUP:?}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
     service_common_do
     if [ "${VERSION_BUILDING:?}" != "${VERSION_DEPLOYING:?}" ]; then
       do_print_info 'DEPLOY SERVICE REJECTED' "# package version is not ${VERSION_BUILDING}"
@@ -505,12 +535,13 @@ define_common_deploy() {
     do_inspect_container
   }
   do_deploy_vault_env() {
-    local _path="${1:?}"
+    local _path="${1}"
+    local _code
+    [ -z "${_path}" ] && _path="${SERVICE_GROUP:?}/${CUSTOMER:?}-env"
     local _url="${SERVICE_VAULT_URL:?}/${_path}"
-    echo "# fetch from vault: ${_url}" >>"${DEPLOY_ENV_SRC:?}"
-    do_on_deploy_host "
-    curl -s -X \'GET\' \'${_url}\' -H \'X-Vault-Token: ${SERVICE_VAULT_TOKEN:?}\' \
-    | jq -r \'.data | to_entries[] | \"\(.key)=\(.value)\"\' 2>/dev/null >> ${DEPLOY_ENV_SRC:?} "
+    _code="$(do_ssh_vault_env_file "${_url}" "${SERVICE_VAULT_TOKEN:?}")"
+    do_print_info "${_code}"
+    do_on_deploy_host "echo \'$_code\' >>\'${DEPLOY_ENV_SRC:?}\'"
   }
   do_deploy_patch() {
     local _dir_name=${1:?}
@@ -574,11 +605,12 @@ define_common_deploy() {
       do_trace \'- replace ${DEPLOY_ENV_SRC}\'
       [ -f \'${DEPLOY_ENV_SRC}\' ] && (
         _eth0_ipv4=\$(/usr/sbin/ifconfig eth0 | grep \'inet \'| awk \'{print \$2}\')
-        sed -i -e \'s|#DEPLOY_ENV_NAME|${ENV_NAME:?}|g\'              ${DEPLOY_ENV_SRC}
-        sed -i -e \"s|#DEPLOY_HOST_IP|\$_eth0_ipv4|g\"                ${DEPLOY_ENV_SRC}
+        sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR}|g\'   ${DEPLOY_ENV_SRC}
         sed -i -e \"s|#VAULT_URL|${SERVICE_VAULT_URL}|g\"             ${DEPLOY_ENV_SRC}
         sed -i -e \"s|#VAULT_TOKEN|${SERVICE_VAULT_TOKEN}|g\"         ${DEPLOY_ENV_SRC}
-        sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR}|g\'   ${DEPLOY_ENV_SRC}
+        sed -i -e \"s|#DEPLOY_CUSTOMER|${CUSTOMER:?}|g\"              ${DEPLOY_ENV_SRC}
+        sed -i -e \'s|#DEPLOY_ENV_NAME|${ENV_NAME:?}|g\'              ${DEPLOY_ENV_SRC}
+        sed -i -e \"s|#DEPLOY_HOST_IP|\$_eth0_ipv4|g\"                ${DEPLOY_ENV_SRC}
       )
       do_trace \'- replace ${DEPLOY_YML_SRC}\'
       [ -f \'${DEPLOY_YML_SRC}\' ] && (
@@ -589,6 +621,7 @@ define_common_deploy() {
       find \'$_remote_dir\' -type f -exec ls -lhA {} +
     ' "
     do_func_invoke deploy_env_hook_do
+    do_func_invoke "deploy_${SERVICE_GROUP_LOWER}_env_hook_do"
     do_func_invoke "deploy_${SERVICE_NAME_LOWER}_env_hook_do"
   }
   _deploy_env_diff() {
@@ -726,3 +759,4 @@ define_common_deploy() {
 } # define_common_deploy
 
 #===============================================================================
+# end of file: .gitlab-ci.lib.sh
