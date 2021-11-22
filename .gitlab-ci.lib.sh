@@ -40,6 +40,17 @@ define_common_init() {
       eval "$_func_name"
     fi
   }
+  do_print_variable() {
+    local _prefix="${1}"
+    local _name="${2:?}"
+    local _suffix="${3}"
+    local _name3="${_prefix}${_name}$_suffix"
+    local _name2="${_prefix}${_name}"
+    local _name1="${_name}${_suffix}"
+    local _name0="${_name}"
+    local _value=${!_name3:-${!_name2:-${!_name1:-${!_name0}}}}
+    printf '%s' "$(echo "${_value}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  }
   do_print_info() {
     if [ $# -gt 1 ]; then
       printf '\033[0;36m%s\033[0m %s\n' "$1" "$2"
@@ -380,30 +391,30 @@ define_common_service() {
     SERVICE_DIR="${SERVICE_GROUP_DIR}/${SERVICE_NAME}"
     SERVICE_LOCATION="${SERVICE_USER_HOST:?}:${SERVICE_DIR}"
     do_print_dash_pair 'SERVICE_LOCATION' "${SERVICE_LOCATION}"
+    SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN')"
+    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL')/runtime"
+    do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
     SERVICE_UPLOAD_DIR="/home/${UPLOAD_SSH_USER:?}/${SERVICE_GROUP}/${SERVICE_NAME}-${CD_VERSION_TAG:?}"
     UPLOAD_LOCATION="${UPLOAD_SSH_USER}@${JUMPER_SSH_HOST}:${SERVICE_UPLOAD_DIR}"
     do_print_dash_pair 'UPLOAD_LOCATION' "${UPLOAD_LOCATION}"
-    [ '' = "${CONTAINER_WORK_DIR}" ] && CONTAINER_WORK_DIR="/home/${SERVICE_USER}"
+    [ -z "${CONTAINER_WORK_DIR}" ] && CONTAINER_WORK_DIR="/home/${SERVICE_USER}"
     _service_reset_status
     _service_check_version
   }
+  _service_vault_variable() {
+    do_print_variable \
+      "$(echo "${CUSTOMER:?}" | tr '[:lower:]' '[:upper:]')_" "${1:?}" \
+      "_$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
+  }
+  _service_ssh_variable() {
+    do_print_variable \
+      "$(echo "${SERVICE_GROUP:?}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')_" "${1:?}" \
+      "_$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
+  }
   _service_ssh_user_host() {
-    local _prefix_grp
-    local _suffix_env
-    local _var_name1
-    local _var_name2
-    local _var_name3
-    _prefix_grp="$(echo "${SERVICE_GROUP:?}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')_"
-    _suffix_env="_$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
-    _var_name1="${_prefix_grp}SSH_USER$_suffix_env"
-    _var_name2="${_prefix_grp}SSH_USER"
-    _var_name3="SERVICE_SSH_USER$_suffix_env"
-    SERVICE_USER="${SERVICE_SSH_USER:-${!_var_name1:-${!_var_name2:-${!_var_name3}}}}"
+    SERVICE_USER="$(_service_ssh_variable 'SERVICE_SSH_USER')"
     do_print_dash_pair 'SERVICE_USER' "${SERVICE_USER}"
-    _var_name1="${_prefix_grp}SSH_HOST$_suffix_env"
-    _var_name2="${_prefix_grp}SSH_HOST"
-    _var_name3="SERVICE_SSH_HOST$_suffix_env"
-    SERVICE_HOST="${SERVICE_SSH_HOST:-${!_var_name1:-${!_var_name2:-${!_var_name3}}}}"
+    SERVICE_HOST="$(_service_ssh_variable 'SERVICE_SSH_HOST')"
     do_print_dash_pair 'SERVICE_HOST' "${SERVICE_HOST}"
     SERVICE_USER_HOST="${SERVICE_USER:?}@${SERVICE_HOST:?}"
   }
@@ -494,8 +505,11 @@ define_common_deploy() {
     do_inspect_container
   }
   do_deploy_vault_env() {
+    local _path="${1:?}"
+    local _url="${SERVICE_VAULT_URL:?}/${_path}"
+    echo "# fetch from vault: ${_url}" >>"${DEPLOY_ENV_SRC:?}"
     do_on_deploy_host "
-    curl -s -X \'GET\' \'${REAL_VAULT_URL:?}\' -H \'X-Vault-Token: ${REAL_VAULT_TOKEN:?}\' \
+    curl -s -X \'GET\' \'${_url}\' -H \'X-Vault-Token: ${SERVICE_VAULT_TOKEN:?}\' \
     | jq -r \'.data | to_entries[] | \"\(.key)=\(.value)\"\' 2>/dev/null >> ${DEPLOY_ENV_SRC:?} "
   }
   do_deploy_patch() {
@@ -544,12 +558,6 @@ define_common_deploy() {
     local _d_ssh="ssh ${SERVICE_USER_HOST:?}"
     CONTAINER_VERSION_MOUNT="- ./${SERVICE_NAME}/CD_VERSION:\${CONTAINER_WORK_DIR}/CD_VERSION:ro"
     CONTAINER_ENTRYPOINT_MOUNT="- ./${SERVICE_NAME}/bin/${SERVICE_NAME}.sh:/usr/local/bin/${SERVICE_NAME}:ro"
-    local _suffix_env
-    _suffix_env="$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
-    _var_name="VAULT_URL_${_suffix_env}"
-    REAL_VAULT_URL="${!_var_name:-${VAULT_URL}}/${SERVICE_GROUP:?}"
-    _var_name="VAULT_TOKEN_${_suffix_env}"
-    REAL_VAULT_TOKEN="${!_var_name:-${VAULT_TOKEN}}"
     $_u_ssh "
     ${DECLARE_DO_TRACE}
     if [ ! -d '$_local_dir' ]; then
@@ -568,9 +576,9 @@ define_common_deploy() {
         _eth0_ipv4=\$(/usr/sbin/ifconfig eth0 | grep \'inet \'| awk \'{print \$2}\')
         sed -i -e \'s|#DEPLOY_ENV_NAME|${ENV_NAME:?}|g\'              ${DEPLOY_ENV_SRC}
         sed -i -e \"s|#DEPLOY_HOST_IP|\$_eth0_ipv4|g\"                ${DEPLOY_ENV_SRC}
-        sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR:?}|g\' ${DEPLOY_ENV_SRC}
-        sed -i -e \"s|#VAULT_URL|${REAL_VAULT_URL}|g\"                ${DEPLOY_ENV_SRC}
-        sed -i -e \"s|#VAULT_TOKEN|${REAL_VAULT_TOKEN}|g\"            ${DEPLOY_ENV_SRC}
+        sed -i -e \"s|#VAULT_URL|${SERVICE_VAULT_URL}|g\"             ${DEPLOY_ENV_SRC}
+        sed -i -e \"s|#VAULT_TOKEN|${SERVICE_VAULT_TOKEN}|g\"         ${DEPLOY_ENV_SRC}
+        sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR}|g\'   ${DEPLOY_ENV_SRC}
       )
       do_trace \'- replace ${DEPLOY_YML_SRC}\'
       [ -f \'${DEPLOY_YML_SRC}\' ] && (
