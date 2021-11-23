@@ -33,11 +33,11 @@ verify_job_do() {
 define_common_init() {
   do_func_invoke() {
     [ -n "${1}" ] && _func_name="${1}"
-    if [[ $(type -t "${_func_name:?}") != function ]]; then
+    if [ "$(type -t "${_func_name:?}")" != function ]; then
       do_print_info "# $_func_name is absent as a function"
     else
       do_print_info "# $_func_name"
-      eval "$_func_name"
+      eval "$@"
     fi
   }
   do_print_variable() {
@@ -89,6 +89,19 @@ define_common_init() {
       printf '\033[1;30m%s\033[0m\n' "${SHORT_LINE}--------------------"
     fi
   }
+  do_vault_bash_inject() {
+    local _code_func="${1:?}"
+    local _type="${2:?}"
+    if [ -z "${VAULT_URL}" ]; then return; fi
+    if [ -z "${VAULT_TOKEN}" ]; then return; fi
+    local _code
+    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
+    do_print_info "- fetch from vault: ${_url}"
+    _code="$(${_code_func} "${_url}" "${VAULT_TOKEN}")"
+    do_print_info "- fetch from vault: ${#_code} bytes"
+    #do_print_info "${_code}"
+    eval "${_code}"
+  }
   init_first_do() {
     do_func_invoke 'init_first_custom_do'
     do_print_section 'INIT ALL BEGIN'
@@ -101,14 +114,12 @@ define_common_init() {
     do_print_section 'INIT ALL DONE!' && echo ''
   }
   init_inject_ci_bash_do() {
-    local _func_name='_ssh_vault_bash_inject'
-    if [[ $(type -t "${_func_name}") != function ]]; then return; fi
-    _ssh_vault_bash_inject 'ci'
+    do_print_info "# ${FUNCNAME[0]}"
+    do_vault_bash_inject 'do_ssh_vault_bash_file' 'ci'
   }
   init_inject_cd_bash_do() {
-    local _func_name='_ssh_vault_bash_inject'
-    if [[ $(type -t "${_func_name}") != function ]]; then return; fi
-    _ssh_vault_bash_inject 'cd'
+    do_print_info "# ${FUNCNAME[0]}"
+    do_vault_bash_inject 'do_ssh_vault_bash_file' 'cd'
   }
   _init_env_var() {
     CUSTOMER=${CUSTOMER:-${CUSTOMER_NAME:-none}}
@@ -118,7 +129,7 @@ define_common_init() {
     do_print_dash_pair 'CI_COMMIT_REF_NAME' "${CI_COMMIT_REF_NAME}"
   }
   _init_ci_tag() {
-    [[ -z "${CI_COMMIT_TAG}" ]] && CI_COMMIT_TAG=${CI_COMMIT_SHORT_SHA}
+    [ -z "${CI_COMMIT_TAG}" ] && CI_COMMIT_TAG=${CI_COMMIT_SHORT_SHA}
     if [ -z "${CI_COMMIT_TAG}" ]; then
       do_print_warn "Error: CI_COMMIT_TAG is empty"
       exit 120
@@ -171,62 +182,66 @@ define_common_init_ssh() {
     local _ssh="ssh ${SSH_DEBUG_OPTIONS}"
     _uid=$($_ssh "$_user_host" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
   }
-  do_ssh_vault_env_file() {
+  do_ssh_vault_bash_export() {
     local _url="${1:?}"
     local _token="${2:?}"
-    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
+    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
     $_ssh "
-      echo \"# fetch from vault: ${_url}\"
-      if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
-      jq -r '.data | to_entries[] | \"\(.key)=\(.value)\"' \
-      <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
-      echo \"# fetch from vault exit status \$?\"
-    "
-  }
-  do_ssh_vault_env_exports() {
-    local _url="${1:?}"
-    local _token="${2:?}"
-    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
-    $_ssh "
-      echo \"# fetch from vault: ${_url}\"
-      if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
-      jq -r '.data | to_entries[] | \"export \(.key)=\\\"\(.value)\\\";\"' \
-      <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
-      echo \"# fetch from vault exit status \$?\"
-    "
+    echo \"## fetch from vault: ${_url}\"
+    if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+    jq -r '.data | to_entries[] | \"export \(.key)=\\\"\(.value)\\\";\"' \
+    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
+    echo \"## fetch from vault exit status \$?\"
+    echo \"echo \"- Bash Injection Finished [\$(date)]\"\"
+    " 2>/dev/null
   }
   do_ssh_vault_bash_file() {
     local _url="${1:?}"
     local _token="${2:?}"
-    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
+    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
     $_ssh "
-      echo \"# fetch from vault: ${_url}\"
-      if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
-      _code=\$(
-        jq -r \".data.BASH_FILE\" \
-        <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
-      )
-      echo \"# fetch from vault exit status \$?\"
-      _code=\$(echo \"\${_code}\" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')
-      if [[ 'null' != \"\$_code\" ]]; then echo \"\$_code\"; fi
-    "
+    echo \"## fetch from vault: ${_url}##BASH_FILE\"
+    if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+    _code=\$(jq -r \".data.BASH_FILE\" \
+    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null)
+    _status=\"\$?\"
+    echo \"## fetch from vault exit status \$_status\"
+    if [ '0' = \"\$_status\" ] && [ -n \"\$_code\" ] && [ 'null' != \"\$_code\" ]; then
+      echo '## bash script injection begin'
+      echo \"\$_code\"
+      echo '## bash script injection end'
+    fi
+    echo \"echo \"- Bash Injection Finished [\$(date)]\"\"
+    " 2>/dev/null
+  }
+  do_ssh_vault_env_file() {
+    local _url="${1:?}"
+    local _token="${2:?}"
+    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
+    $_ssh "
+    echo \"# fetch from vault: ${_url}\"
+    if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+    jq -r '.data | to_entries[] | \"\(.key)=\(.value)\"' \
+    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
+    echo \"# fetch from vault exit status \$?\"
+    " 2>/dev/null
   }
   init_ssh_do() {
-    local _pri_line
-    if [[ -z "${SSH_USER}" && -n "${SSH_USER_PREFIX}" ]]; then
+    if [ -z "${SSH_USER}" ] && [ -n "${SSH_USER_PREFIX}" ]; then
       SSH_USER="${SSH_USER_PREFIX}-${ENV_NAME:?}"
     fi
     _ssh_agent_init
     _ssh_add_user_default
-    _ssh_vault_env_inject
+    do_vault_bash_inject 'do_ssh_vault_bash_export' 'env'
   }
   _ssh_add_user_default() {
     ARG_SSH_USER=${SSH_USER:?}
     ARG_SSH_HOST="${SSH_HOST:?}"
-    ARG_SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS:?}"
-    ARG_SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:?}"
+    ARG_SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS}"
+    ARG_SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY}"
     do_ssh_add_user
     SSH_USER_HOST="${SSH_USER}@${SSH_HOST}"
+    CMD_SSH_DEFAULT="ssh -o ConnectTimeout=3 ${SSH_USER_HOST}"
   }
   _ssh_add_key() {
     do_print_info "# ssh-add"
@@ -252,28 +267,6 @@ define_common_init_ssh() {
     touch ~/.ssh/known_hosts
     chmod 644 ~/'.ssh/known_hosts'
     chmod 700 ~/'.ssh'
-  }
-  _ssh_vault_env_inject() {
-    local _type='env'
-    if [ -z "${VAULT_URL}" ]; then return; fi
-    if [ -z "${VAULT_TOKEN}" ]; then return; fi
-    do_print_info "# ${FUNCNAME[0]}"
-    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
-    _code="$(do_ssh_vault_env_exports "${_url}" "${VAULT_TOKEN}")"
-    #do_print_info "${_code}"
-    do_print_info "- injection line count: $(echo "${_code}" | wc -l)"
-    eval "${_code}"
-  }
-  _ssh_vault_bash_inject() {
-    local _type=${1:?}
-    if [ -z "${VAULT_URL}" ]; then return; fi
-    if [ -z "${VAULT_TOKEN}" ]; then return; fi
-    do_print_info "# ${FUNCNAME[0]}"
-    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
-    local _ssh="ssh ${SSH_USER:?}@${SSH_HOST:?}"
-    do_print_info "# fetch from vault: ${_url}"
-    # shellcheck disable=SC1090
-    . <(do_ssh_vault_bash_file "$_url" "${VAULT_TOKEN}")
   }
 } # define_common_init_ssh
 
@@ -389,7 +382,7 @@ define_common_service() {
     VERSION_RUNNING_NOW=$(do_cat_running_version)
     do_print_dash_pair 'VERSION_RUNNING_NOW' "${VERSION_RUNNING_NOW}"
     local _vr="${VERSION_RUNNING}"
-    if [[ "$_vr" && "$_vr" != '0' && "$_vr" != "${VERSION_RUNNING_NOW}" ]]; then
+    if [ -n "$_vr" ] && [ "$_vr" != '0' ] && [ "$_vr" != "${VERSION_RUNNING_NOW}" ]; then
       do_print_dash_pair 'VERSION_STOPPED' "${VERSION_RUNNING}"
     fi
     do_on_deploy_host "
@@ -577,11 +570,10 @@ define_common_deploy() {
     DEPLOY_ENV_SRC="${SERVICE_DEPLOY_DIR}/env/$_compose_env_name"
     DEPLOY_YML_SRC="${SERVICE_DEPLOY_DIR}/env/$_compose_yml_name"
   }
-  DECLARE_DO_TRACE="do_trace() {                                                  \
+  DECLARE_DO_TRACE=$(printf '%s' "do_trace() { \
     if   [ \$# -gt 1 ]; then printf \"\033[0;34m%s\033[0m %s\n\" \"\$1\" \"\$2\"; \
     elif [ \$# -gt 0 ]; then printf \"\033[0;34m%s\033[0m\n\"    \"\$1\";         \
-    else printf \"\"; fi                                                          \
-  }; "
+    else printf \"\"; fi }; " | tr -s ' ')
   _deploy_env() {
     local _local_dir="${SERVICE_UPLOAD_DIR:?}/env"
     local _remote_dir="${SERVICE_DEPLOY_DIR:?}/env"
@@ -646,7 +638,7 @@ define_common_deploy() {
       do_diff \"\$_old\" \"\$_new\"
       _yml_changed=\$?
       do_trace \"# diff result: env(\$_env_changed) yml(\$_yml_changed)\"
-      if [[ 1 = \$_env_changed || 1 = \$_yml_changed ]];
+      if [ 1 = \$_env_changed ] || [ 1 = \$_yml_changed ];
       then echo 'yes';
       else echo ' no'; fi "
     )
@@ -722,7 +714,7 @@ define_common_deploy() {
       ln -sfn \'$_remote_dir\' \'$_remote_dir/CD_LINK\'
       mv -Tf  \'$_remote_dir/CD_LINK\' ${SERVICE_DIR:?} && (
         do_check_container
-        if [[ \'yes\' != \'${ENV_CHANGED}\' && \'yes\' = \"\$_container_created\" ]]; then
+        if [ \'yes\' != \'${ENV_CHANGED}\' ] && [ \'yes\' = \"\$_container_created\" ]; then
           do_trace \'# $_container_cmd start\'
           $_container_cmd start ${SERVICE_NAME}
           do_trace \"# $_container_cmd start exited with status \$?\"
