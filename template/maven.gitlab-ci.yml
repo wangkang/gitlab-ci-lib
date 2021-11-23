@@ -41,16 +41,16 @@ variables:
 
 #===============================================================================
 
-stages: [ plan, build, deploy, verify ]
+stages: [ build, deploy, verify ]
 
 .build_only: &build_only
   stage: build
   <<: *build_runner_cache
   before_script:
     - *init_common_func
+  script:
     - *init_custom_func
     - init_first_do
-  script:
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -61,6 +61,8 @@ stages: [ plan, build, deploy, verify ]
   script:
     - *init_ssh_common_func
     - init_ssh_do
+    - *init_custom_func
+    - init_first_do
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -74,9 +76,9 @@ stages: [ plan, build, deploy, verify ]
   before_script:
     - *init_common_func
     - *init_ssh_common_func
+    - init_ssh_do
     - *init_custom_func
     - init_first_do
-    - init_ssh_do
 
 .deploy_to_env: &deploy_to_env
   stage: deploy
@@ -97,20 +99,6 @@ stages: [ plan, build, deploy, verify ]
     - *verify_custom_func
     - verify_job_do
   allow_failure: true
-
-#===============================================================================
-
-.begin:
-  <<: *image_for_build
-  stage: plan
-  variables: { ENV_NAME: none, GIT_CHECKOUT: "false", CI_DEBUG_TRACE: "false" }
-  before_script:
-    - *init_common_func
-    - *init_custom_func
-    - init_first_do
-  script:
-    - init_final_do
-  when: always
 
 #===============================================================================
 
