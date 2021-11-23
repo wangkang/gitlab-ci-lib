@@ -90,14 +90,20 @@ define_common_init() {
     fi
   }
   do_vault_bash_inject() {
-    local _code_func="${1:?}"
+    local _func="${1:?}"
+    if [ "$(type -t "${_func}")" != function ]; then
+      do_print_warn "- Function '${_func}' is undefined"
+      return 0
+    fi
+    if [ -z "${VAULT_URL}" ] || [ -z "${VAULT_TOKEN}" ]; then
+      do_print_info "- Abort injection: 'VAULT_URL' or 'VAULT_TOKEN' is absent"
+      return 0
+    fi
     local _type="${2:?}"
-    if [ -z "${VAULT_URL}" ]; then return; fi
-    if [ -z "${VAULT_TOKEN}" ]; then return; fi
     local _code
     local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
     do_print_info "- fetch from vault: ${_url}"
-    _code="$(${_code_func} "${_url}" "${VAULT_TOKEN}")"
+    _code="$(${_func} "${_url}" "${VAULT_TOKEN}")"
     do_print_info "- fetch from vault: ${#_code} bytes"
     #do_print_info "${_code}"
     eval "${_code}"
