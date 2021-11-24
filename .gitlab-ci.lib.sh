@@ -563,9 +563,11 @@ define_common_deploy() {
       do_print_warn '- fetched nothing'
       return 0
     fi
+    _file_content="${_file_content//\"/\\\"}"
+    _file_content="${_file_content//\$/\\\$}"
     do_on_jumper_host "
     if [ ! -f ${_remote_path} ]; then touch ${_remote_path} && chmod 660 ${_remote_path}; fi
-    echo \"${_file_content//\"/\\\"}\" > '${_remote_path}'
+    echo \"${_file_content}\" > '${_remote_path}'
     ls -lh '${_remote_dir}' "
   }
   do_deploy_patch() {
