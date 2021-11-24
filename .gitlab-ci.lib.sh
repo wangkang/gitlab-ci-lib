@@ -194,29 +194,10 @@ define_common_init_ssh() {
     local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
     $_ssh "
     echo \"## fetch from vault: ${_url}\"
-    if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+    if [ -z \"\$(command -v jq)\" ]; then echo '## jq is not installed'; exit 0; fi
     jq -r '.data | to_entries[] | \"export \(.key)=\\\"\(.value)\\\";\"' \
     <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
     echo \"## fetch from vault exit status \$?\"
-    echo \"echo \"- Bash Injection Finished [\$(date)]\"\"
-    " 2>/dev/null
-  }
-  do_ssh_vault_bash_file() {
-    local _url="${1:?}"
-    local _token="${2:?}"
-    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
-    $_ssh "
-    echo \"## fetch from vault: ${_url}##BASH_FILE\"
-    if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
-    _code=\$(jq -r \".data.BASH_FILE\" \
-    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null)
-    _status=\"\$?\"
-    echo \"## fetch from vault exit status \$_status\"
-    if [ '0' = \"\$_status\" ] && [ -n \"\$_code\" ] && [ 'null' != \"\$_code\" ]; then
-      echo '## bash script injection begin'
-      echo \"\$_code\"
-      echo '## bash script injection end'
-    fi
     echo \"echo \"- Bash Injection Finished [\$(date)]\"\"
     " 2>/dev/null
   }
@@ -226,11 +207,32 @@ define_common_init_ssh() {
     local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
     $_ssh "
     echo \"# fetch from vault: ${_url}\"
-    if [ -z \"\$(command -v jq)\" ]; then echo '# jq is not installed'; exit 0; fi
+    if [ -z \"\$(command -v jq)\" ]; then echo '## jq is not installed'; exit 0; fi
     jq -r '.data | to_entries[] | \"\(.key)=\(.value)\"' \
     <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
     echo \"# fetch from vault exit status \$?\"
     " 2>/dev/null
+  }
+  do_ssh_vault_with_key() {
+    local _url="${1:?}"
+    local _token="${2:?}"
+    local _key="${3:?}"
+    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
+    $_ssh "
+    if [ -z \"\$(command -v jq)\" ]; then echo ''; exit 0; fi
+    _code=\$(jq -r \".data.${_key}\" \
+    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null)
+    _status=\"\$?\"
+    if [ '0' = \"\$_status\" ] && [ -n \"\$_code\" ] && [ 'null' != \"\$_code\" ]; then
+      echo \"\$_code\"
+    fi
+    " 2>/dev/null
+  }
+  do_ssh_vault_bash_file() {
+    local _url="${1:?}"
+    echo "## fetch from vault: ${_url}##BASH_FILE"
+    do_ssh_vault_with_key "${_url}" "${2:?}" 'BASH_FILE'
+    echo "echo \"- Bash Injection Finished [\$(date)]\""
   }
   init_ssh_do() {
     if [ -z "${SSH_USER}" ] && [ -n "${SSH_USER_PREFIX}" ]; then
@@ -542,6 +544,30 @@ define_common_deploy() {
     do_print_info "${_code}"
     do_on_deploy_host "echo \'$_code\' >>\'${DEPLOY_ENV_SRC:?}\'"
   }
+  do_deploy_vault_patch() {
+    do_print_info "# ${FUNCNAME[0]}"
+    local _file_path="${1}"
+    local _type="${2:-etc}"
+    local _content_key="${_file_path:?}"
+    _content_key="${_content_key//./_}"
+    _content_key="${_content_key//-/_}"
+    #_content_key="$(printf '%s' "${_file_path:?}" | tr '-' '_' | tr '.' '_')"
+    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-${_type}"
+    local _remote_dir="${SERVICE_UPLOAD_DIR:?}/${_type}"
+    local _remote_path="${_remote_dir}/${_file_path}"
+    do_print_info "- fetch from ${_url} ## ${_content_key:?}"
+    do_print_info "- fetch to ${UPLOAD_SSH_USER}@${JUMPER_SSH_HOST}:${_remote_path}"
+    local _file_content
+    _file_content="$(do_ssh_vault_with_key "${_url}" "${VAULT_TOKEN:?}" "${_content_key}")"
+    if [ -z "${_file_content}" ]; then
+      do_print_warn '- fetched nothing'
+      return 0
+    fi
+    do_on_jumper_host "
+    if [ ! -f ${_remote_path} ]; then touch ${_remote_path} && chmod 660 ${_remote_path}; fi
+    echo \"${_file_content//\"/\\\"}\" > '${_remote_path}'
+    ls -lh '${_remote_dir}' "
+  }
   do_deploy_patch() {
     local _dir_name=${1:?}
     local _service_dir="${SERVICE_GROUP:?}/${SERVICE_NAME:?}/${_dir_name}"
@@ -555,7 +581,7 @@ define_common_deploy() {
     do_on_jumper_host "mkdir -p ${_remote_dir}"
     do_print_info 'UPLOAD PATCH FROM' "${_local_dir}/*"
     do_print_info 'UPLOAD PATCH TO' "${_remote_dir}/"
-    if ! $_scp "${_local_dir}"/* "${_remote_dir}/"; then
+    if ! $_scp "${_local_dir}/"* "${_remote_dir}/"; then
       do_print_warn 'UPLOAD PATCH FAILED'
     else
       do_print_info 'UPLOAD PATCH OK' "$(date +'%T')"
