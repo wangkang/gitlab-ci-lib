@@ -48,9 +48,9 @@ stages: [ build, deploy, verify ]
   <<: *build_runner_cache
   before_script:
     - *init_common_func
+    - init_first_do
   script:
     - *init_custom_func
-    - init_first_do
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -62,7 +62,6 @@ stages: [ build, deploy, verify ]
     - *init_ssh_common_func
     - init_ssh_do
     - *init_custom_func
-    - init_first_do
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -75,10 +74,10 @@ stages: [ build, deploy, verify ]
   <<: *image_for_deploy
   before_script:
     - *init_common_func
+    - init_first_do
     - *init_ssh_common_func
     - init_ssh_do
     - *init_custom_func
-    - init_first_do
 
 .deploy_to_env: &deploy_to_env
   stage: deploy
