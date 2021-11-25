@@ -16,7 +16,7 @@ variables:
   cache: { policy: pull-push, untracked: false, paths: [ ".m2/" ], key: $CACHE_KEY }
 
 .rules01: &rules_if_develop $CI_COMMIT_REF_NAME == 'develop'
-.rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/
+.rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/ || $CI_COMMIT_REF_NAME =~ /^hotfix\/.*$/
 
 #===============================================================================
 
@@ -106,7 +106,6 @@ package:
   <<: *build_only
   rules:
     - { when: always, if: $CI_COMMIT_REF_NAME =~ /^feature.*$/ }
-    - { when: always, if: $CI_COMMIT_REF_NAME =~ /^hotfix.*$/ }
     - { when: manual, if: $CI_COMMIT_REF_SLUG == 'master' }
 
 #===============================================================================
