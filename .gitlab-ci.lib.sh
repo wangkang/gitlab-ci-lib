@@ -214,17 +214,17 @@ define_common_init_ssh() {
     " 2>/dev/null
   }
   do_ssh_vault_with_key() {
-    local _url="${1:?}"
-    local _token="${2:?}"
-    local _key="${3:?}"
+    local _url="${1}"
+    local _token="${2}"
+    local _key="${3}"
     local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
     $_ssh "
     if [ -z \"\$(command -v jq)\" ]; then echo ''; exit 0; fi
-    _code=\$(jq -r \".data.${_key}\" \
-    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null)
+    _code=\$(jq -r \".data.${_key:?}\" \
+    <<<\$(curl --max-time 5 -s \"${_url:?}\" -H \"X-Vault-Token: ${_token:?}\") 2>/dev/null)
     _status=\"\$?\"
     if [ '0' = \"\$_status\" ] && [ -n \"\$_code\" ] && [ 'null' != \"\$_code\" ]; then
-      echo \"\$_code\"
+      printf '%s\n' \"\$_code\"
     fi
     " 2>/dev/null
   }
@@ -549,9 +549,9 @@ define_common_deploy() {
     local _file_path="${1}"
     local _type="${2:-etc}"
     local _content_key="${_file_path:?}"
+    #_content_key="$(printf '%s' "${_file_path:?}" | tr '-' '_' | tr '.' '_')"
     _content_key="${_content_key//./_}"
     _content_key="${_content_key//-/_}"
-    #_content_key="$(printf '%s' "${_file_path:?}" | tr '-' '_' | tr '.' '_')"
     local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-${_type}"
     local _remote_dir="${SERVICE_UPLOAD_DIR:?}/${_type}"
     local _remote_path="${_remote_dir}/${_file_path}"
@@ -563,12 +563,12 @@ define_common_deploy() {
       do_print_warn '- fetched nothing'
       return 0
     fi
-    _file_content="${_file_content//\"/\\\"}"
-    _file_content="${_file_content//\$/\\\$}"
+    printf -v _file_content '"%q"' "${_file_content}"
     do_on_jumper_host "
     if [ ! -f ${_remote_path} ]; then touch ${_remote_path} && chmod 660 ${_remote_path}; fi
-    echo \"${_file_content}\" > '${_remote_path}'
-    ls -lh '${_remote_dir}' "
+    printf '%s\n' \"${_file_content}\" >'${_remote_path}'
+    ls -lh '${_remote_dir}'
+    "
   }
   do_deploy_patch() {
     local _dir_name=${1:?}
