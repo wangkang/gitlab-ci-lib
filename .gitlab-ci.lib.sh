@@ -1,45 +1,255 @@
 #!/bin/bash
-
-set -e
-
-#===============================================================================
-
-build_job_do() {
-  do_print_section 'BUILD JOB BEGIN'
-  do_func_invoke "build_custom_do"
-  do_print_section 'BUILD JOB DONE!' && echo ''
-}
-upload_job_do() {
-  do_print_section 'UPLOAD JOB BEGIN'
-  do_upload_cleanup_local
-  do_func_invoke "upload_custom_do"
-  do_print_section 'UPLOAD JOB DONE!' && echo ''
-}
-deploy_job_do() {
-  do_print_section 'DEPLOY JOB BEGIN'
-  do_func_invoke "deploy_custom_do"
-  do_func_invoke "deploy_${ENV_NAME:?}_do"
-  do_print_section 'DEPLOY JOB DONE!' && echo ''
-}
-verify_job_do() {
-  do_print_section 'VERIFY JOB BEGIN'
-  do_func_invoke "verify_custom_do"
-  do_func_invoke "verify_${ENV_NAME:?}_do"
-  do_print_section 'VERIFY JOB DONE!' && echo ''
-}
+set -eo pipefail
 
 #===============================================================================
 
-define_common_init() {
-  do_func_invoke() {
-    [ -n "${1}" ] && _func_name="${1}"
-    if [ "$(type -t "${_func_name:?}")" != function ]; then
-      do_print_info "# $_func_name is absent as a function"
-    else
-      do_print_info "# $_func_name"
-      eval "$@"
+define_util_ssh() {
+  do_invoke_on_jumper() {
+    do_ssh_invoke "${JUMPER_USER_HOST:?}" "${@}"
+    IMPORT_FUNCTION=()
+  }
+  do_invoke_on_server() {
+    local _func_name="${1}"
+    IMPORT_FUNCTION+=("${_func_name:?}")
+    do_ssh_invoke "${JUMPER_USER_HOST:?}" do_ssh_invoke "${SERVICE_USER_HOST:?}" "${@}"
+    IMPORT_FUNCTION=()
+  }
+  do_ssh_invoke() {
+    local _user_host="${1}"
+    local _func_name="${2}"
+    local _command="${_func_name:?} ${*:3}"
+    if [[ ! "${IMPORT_FUNCTION[*]}" =~ ${_func_name} ]]; then
+      IMPORT_FUNCTION+=("${_func_name}")
+    fi
+    printf -v _command '%s\n%s' "$(declare -p IMPORT_FUNCTION)" "${_command}"
+    printf -v _command '%s\n%s' "$(declare -p OPTION_DEBUG)" "${_command}"
+    for i in "${IMPORT_FUNCTION[@]}"; do
+      if [ "$(type -t "${i}")" != function ]; then
+        echo "## $(whoami)@$(hostname): not a function name: ${i}"
+        return 0
+      fi
+      printf -v _command '%s\n%s' "$(declare -f "${i}")" "${_command}"
+    done
+    local _ssh="ssh -o ConnectTimeout=3 -T ${SSH_DEBUG_OPTIONS} ${_user_host}"
+    local _hint
+    _hint="[$(date)] $(whoami)@$(hostname) --> ${_ssh}"
+    printf -v _command '%s\n%s' "## BEGIN: ${_hint}" "${_command}"
+    printf -v _command '%s\n%s' "${_command}" "## END: ${_hint}"
+    do_print_debug "${_command}"
+    do_print_debug "# ${FUNCNAME[*]}"
+    $_ssh "${_command}"
+  }
+  do_ssh_add_user_default() {
+    eval "$(_ssh_user_declare)"
+    ARG_SSH_USER="${SSH_USER}"
+    ARG_SSH_HOST="${SSH_HOST}"
+    ARG_SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS}"
+    ARG_SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY}"
+    do_ssh_add_user
+    SSH_USER_HOST="${SSH_USER}@${SSH_HOST}"
+  }
+  do_ssh_add_user_upload() {
+    eval "$(_ssh_user_declare)"
+    eval "$(_ssh_user_declare 'UPLOAD')"
+    ARG_SSH_USER="${UPLOAD_SSH_USER:=${SSH_USER:?}}"
+    ARG_SSH_PRIVATE_KEY="${UPLOAD_SSH_PRIVATE_KEY:=${SSH_PRIVATE_KEY}}"
+    ARG_SSH_HOST="${UPLOAD_SSH_HOST:=${JUMPER_SSH_HOST:-${SSH_HOST:?}}}"
+    ARG_SSH_KNOWN_HOSTS="${UPLOAD_SSH_KNOWN_HOSTS:=${JUMPER_SSH_KNOWN_HOSTS:-${SSH_KNOWN_HOSTS}}}"
+    do_ssh_add_user
+    UPLOAD_USER_HOST="${UPLOAD_SSH_USER}@${UPLOAD_SSH_HOST}"
+  }
+  do_ssh_add_user_jumper() {
+    eval "$(_ssh_user_declare)"
+    eval "$(_ssh_user_declare 'UPLOAD')"
+    eval "$(_ssh_user_declare 'DEPLOY')"
+    ARG_SSH_USER="${DEPLOY_SSH_USER:=${UPLOAD_SSH_USER:=${SSH_USER:?}}}"
+    ARG_SSH_PRIVATE_KEY="${DEPLOY_SSH_PRIVATE_KEY:-${UPLOAD_SSH_PRIVATE_KEY:-${SSH_PRIVATE_KEY}}}"
+    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
+    ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
+    do_ssh_add_user
+    JUMPER_USER_HOST="${DEPLOY_SSH_USER}@${JUMPER_SSH_HOST}"
+    UPLOAD_SSH_USER="${UPLOAD_SSH_USER:=${JUMPER_SSH_USER:-${SSH_USER:?}}}"
+  }
+  do_ssh_add_user() {
+    do_print_info "# ${FUNCNAME[*]}"
+    local _user_host="${ARG_SSH_USER}@${ARG_SSH_HOST}"
+    do_print_info "SSH ADD USER [${_user_host}]"
+    if [ -z "${ARG_SSH_USER}" ]; then
+      do_print_info 'SSH ADD USER DONE (abort: ARG_SSH_USER is absent)'
+      return
+    fi
+    if [ -z "${ARG_SSH_HOST}" ]; then
+      do_print_info 'SSH ADD USER DONE (abort: ARG_SSH_HOST is absent)'
+      return
+    fi
+    if [ "$_user_host" = "${SSH_USER_HOST}" ]; then
+      do_print_info 'SSH ADD USER OK (same as default user)'
+      return
+    fi
+    if [[ "${ADDED_USER_HOST[*]}" =~ ${_user_host} ]]; then
+      do_print_info 'SSH ADD USER OK (already been added)'
+      return
+    fi
+    do_print_dash_pair 'SSH_USER_HOST' "${_user_host}"
+    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && do_print_dash_pair 'SSH_KNOWN_HOSTS' "${ARG_SSH_KNOWN_HOSTS:0:60}**"
+    [ -n "${ARG_SSH_PRIVATE_KEY}" ] && (
+      local _pri_line
+      _pri_line=$(echo "${ARG_SSH_PRIVATE_KEY}" | tr -d '\n')
+      do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60}**"
+    )
+    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && _ssh_add_known "${ARG_SSH_KNOWN_HOSTS}"
+    [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
+    local _uid='-1'
+    local _ssh="ssh -o ConnectTimeout=3 -T ${SSH_DEBUG_OPTIONS}"
+    _uid=$($_ssh "${_user_host}" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
+    local _status="${?}"
+    if [ 0 = ${_status} ]; then
+      if [[ ! "${ADDED_USER_HOST[*]}" =~ ${_user_host} ]]; then
+        ADDED_USER_HOST+=("${_user_host}")
+      fi
+    fi
+    do_print_info 'SSH ADD USER DONE' "ssh exit with status ${_status}"
+  }
+  do_ssh_reset_service() {
+    SERVICE_USER="$(_service_ssh_variable 'SERVICE_SSH_USER')"
+    do_print_dash_pair 'SERVICE_USER' "${SERVICE_USER}"
+    SERVICE_HOST="$(_service_ssh_variable 'SERVICE_SSH_HOST')"
+    do_print_dash_pair 'SERVICE_HOST' "${SERVICE_HOST}"
+    SERVICE_USER_HOST="${SERVICE_USER:?}@${SERVICE_HOST:?}"
+  }
+  _service_ssh_variable() {
+    local _prefix=''
+    [ -n "${SERVICE_GROUP}" ] && _prefix="$(echo "${SERVICE_GROUP}" | tr '[:lower:]' '[:upper:]')_"
+    local _suffix=''
+    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
+    do_print_variable "${_prefix//-/_}" "${1:?}" "${_suffix}"
+  }
+  _ssh_user_declare() {
+    if [ -n "${1}" ]; then local _prefix="${1}_"; else local _prefix=""; fi
+    local _full_name="${_prefix}SSH_USER_PREFIX"
+    local _value="${!_full_name}"
+    if [ -n "${_value}" ]; then
+      if [ -n "${ENV_NAME}" ]; then local _value="${_value}-${ENV_NAME}"; fi
+      local _name="${_prefix}SSH_USER"
+      declare -x "${_name}"="${_value}"
+      declare -p "${_name}"
     fi
   }
+  _ssh_add_key() {
+    echo "${1:?}" | tr -d '\r' | ssh-add - >/dev/null
+    #do_print_info "# ssh-add $?"
+  }
+  _ssh_add_known() {
+    echo "${1:?}" >>~/'.ssh/known_hosts'
+  }
+  _ssh_agent_init() {
+    if [ -z "$(command -v ssh-agent)" ]; then
+      do_print_warn 'Error: ssh-agent is not installed'
+      exit 120
+    fi
+    if [ -z "$(command -v ssh-add)" ]; then
+      do_print_warn 'Error: ssh-add is not installed'
+      exit 120
+    fi
+    eval "$(ssh-agent -s)" &>/dev/null
+    do_print_info "- ssh-agent status code ${?}"
+    mkdir -p ~/.ssh
+    touch ~/.ssh/known_hosts
+    chmod 644 ~/'.ssh/known_hosts'
+    chmod 700 ~/'.ssh'
+  }
+}
+
+define_util_vault() {
+  do_vault_bash_inject() {
+    local _url="${1}"
+    local _func="${2}"
+    if [ -z "${_url}" ]; then
+      return
+    fi
+    do_print_info "# ${2} ${FUNCNAME[*]}"
+    if [ "$(type -t "${_func:?}")" != function ]; then
+      do_print_warn "- Function '${_func}' is undefined"
+      return
+    fi
+    do_print_info "- fetch from vault: ${_url}"
+    local _command
+    _command="$(eval "${_func}" "${_url}" "${VAULT_TOKEN:?}")"
+    local _line_count
+    _line_count=$(echo "${_command}" | wc -l | xargs)
+    do_print_info "- fetch from vault: ${_line_count} lines"
+    do_print_debug "${_command}"
+    eval "${_command}"
+  }
+  do_vault_check() {
+    if [ -z "$(command -v jq)" ]; then
+      echo '## jq is not installed'
+      return 2
+    fi
+    if [ -z "$(command -v curl)" ]; then
+      echo '## curl is not installed'
+      return 1
+    fi
+    return 0
+  }
+  do_vault_with_ssh() {
+    local _local_func_name="${1}"
+    IMPORT_FUNCTION=(do_vault_fetch_local do_vault_check do_print_debug)
+    do_ssh_invoke "${SSH_USER_HOST:?}" "${_local_func_name:?}" "${*:2}" 2>/dev/null
+    IMPORT_FUNCTION=()
+  }
+  do_vault_with_ssh_or_local() {
+    local _func_name="${1}_local"
+    if ! do_vault_check; then
+      do_vault_with_ssh "${_func_name:?}" "${*:2}"
+    else
+      eval "${_func_name:?}" "${*:2}"
+    fi
+  }
+  do_vault_fetch_local() {
+    local _url="${1}"
+    local _token="${2}"
+    local _jq_cmd="${3}"
+    printf '%s\n' "## generated at [$(date)] by $(whoami)@$(hostname)"
+    printf '%s\n' "## fetch from vault: ${_url:?} .data.*"
+    if ! do_vault_check; then return; fi
+    jq -r "${_jq_cmd:?}" <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")" 2>/dev/null
+    printf '%s\n' "## fetch from vault exit status ${?}"
+  }
+  do_vault_fetch_env_file() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
+  do_vault_fetch_env_file_local() {
+    local _url="${1}"
+    local _token="${2}"
+    local _jq_cmd='.data | to_entries[] | "\(.key)=\(.value)"'
+    do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
+  }
+  do_vault_fetch_bash_env() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
+  do_vault_fetch_bash_env_local() {
+    local _url="${1}"
+    local _token="${2}"
+    local _jq_cmd=$'.data | to_entries[] | "export \(.key)=$\'\(.value)\'"'
+    do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
+  }
+  do_vault_fetch_bash_file() { do_vault_fetch_with_key "${@}" 'BASH_FILE'; }
+  do_vault_fetch_with_key() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
+  do_vault_fetch_with_key_local() {
+    local _url="${1}"
+    local _token="${2}"
+    local _key="${3}"
+    printf '%s\n' "## generated at [$(date)] by $(whoami)@$(hostname)"
+    printf '%s\n' "## fetch from vault: ${_url:?} .data.${_key:?}"
+    if ! do_vault_check; then return; fi
+    _value=$(jq -r ".data.${_key}" \
+      <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")" 2>/dev/null)
+    _status="${?}"
+    if [ '0' = "${_status}" ] && [ -n "${_value}" ] && [ 'null' != "${_value}" ]; then
+      printf '%s\n' "${_value}"
+    fi
+    printf '%s\n' "## fetch from vault exit status ${_status}"
+  }
+}
+
+define_util_print() {
   do_print_variable() {
     local _prefix="${1}"
     local _name="${2:?}"
@@ -50,6 +260,15 @@ define_common_init() {
     local _name0="${_name}"
     local _value=${!_name3:-${!_name2:-${!_name1:-${!_name0}}}}
     printf '%s' "$(echo "${_value}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  }
+  do_print_debug() {
+    local _enabled=${OPTION_DEBUG:='no'}
+    if [ 'yes' != "${_enabled}" ]; then return 0; fi
+    if [ $# -gt 1 ]; then
+      printf '\033[0;35m%s\033[0m %s\n' "$1" "$2"
+    elif [ $# -gt 0 ]; then
+      printf '\033[0;35m%s\033[0m\n' "$1"
+    else printf ''; fi
   }
   do_print_info() {
     if [ $# -gt 1 ]; then
@@ -89,24 +308,22 @@ define_common_init() {
       printf '\033[1;30m%s\033[0m\n' "${SHORT_LINE}--------------------"
     fi
   }
-  do_vault_bash_inject() {
-    local _func="${1:?}"
-    if [ "$(type -t "${_func}")" != function ]; then
-      do_print_warn "- Function '${_func}' is undefined"
-      return 0
+}
+
+#===============================================================================
+
+define_common_init() {
+  define_util_print
+  define_util_vault
+  define_common_ci_job
+  do_func_invoke() {
+    [ -n "${1}" ] && _func_name="${1}"
+    if [ "$(type -t "${_func_name:?}")" != function ]; then
+      do_print_info "# $_func_name is absent as a function"
+    else
+      do_print_info "# $_func_name"
+      eval "${@}"
     fi
-    if [ -z "${VAULT_URL}" ] || [ -z "${VAULT_TOKEN}" ]; then
-      do_print_info "- Abort injection: 'VAULT_URL' or 'VAULT_TOKEN' is absent"
-      return 0
-    fi
-    local _type="${2:?}"
-    local _code
-    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-$_type"
-    do_print_info "- fetch from vault: ${_url}"
-    _code="$(${_func} "${_url}" "${VAULT_TOKEN}")"
-    do_print_info "- fetch from vault: ${#_code} bytes"
-    #do_print_info "${_code}"
-    eval "${_code}"
   }
   init_first_do() {
     do_func_invoke 'init_first_custom_do'
@@ -119,13 +336,42 @@ define_common_init() {
     do_func_invoke 'init_final_custom_do'
     do_print_section 'INIT ALL DONE!' && echo ''
   }
+  init_inject_env_bash_do() {
+    _reset_injection_vault_url 'env'
+    do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_env'
+  }
   init_inject_ci_bash_do() {
-    do_print_info "# ${FUNCNAME[0]}"
-    do_vault_bash_inject 'do_ssh_vault_bash_file' 'ci'
+    _reset_injection_vault_url 'ci'
+    do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_file'
   }
   init_inject_cd_bash_do() {
-    do_print_info "# ${FUNCNAME[0]}"
-    do_vault_bash_inject 'do_ssh_vault_bash_file' 'cd'
+    _reset_injection_vault_url 'cd'
+    do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_file'
+  }
+  _reset_injection_vault_url() {
+    local _type="${1}"
+    if [ -n "${VAULT_URL_GITLAB}" ]; then
+      INJECTION_VAULT_URL="${VAULT_URL_GITLAB}-${_type:?}"
+      return
+    fi
+    INJECTION_VAULT_URL=''
+    if [ -z "${CI_PROJECT_NAME}" ]; then
+      do_print_info "- Abort vault injection: 'CI_PROJECT_NAME' is absent"
+      return
+    fi
+    if [ -z "${CUSTOMER}" ]; then
+      do_print_info "- Abort vault injection: 'CUSTOMER' is absent"
+      return
+    fi
+    if [ -z "${VAULT_URL}" ]; then
+      do_print_info "- Abort vault injection: 'VAULT_URL' is absent"
+      return
+    fi
+    if [ -z "${VAULT_TOKEN}" ]; then
+      do_print_info "- Abort vault injection: 'VAULT_TOKEN' is absent"
+      return
+    fi
+    INJECTION_VAULT_URL="${VAULT_URL}/gitlab/${CI_PROJECT_NAME}/${CUSTOMER}-${_type:?}"
   }
   _init_env_var() {
     CUSTOMER=${CUSTOMER:-${CUSTOMER_NAME:-none}}
@@ -168,113 +414,13 @@ define_common_init() {
 #===============================================================================
 
 define_common_init_ssh() {
-  do_ssh_add_user() {
-    do_print_info "SSH ADD USER $_user_host"
-    local _user_host="${ARG_SSH_USER:?}@${ARG_SSH_HOST:?}"
-    if [ "$_user_host" = "${SSH_USER_HOST}" ]; then
-      do_print_info 'SSH ADD USER OK (same as default user)'
-      return
-    fi
-    do_print_dash_pair 'SSH_USER_HOST' "${_user_host}"
-    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && do_print_dash_pair 'SSH_KNOWN_HOSTS' "${ARG_SSH_KNOWN_HOSTS:0:60}**"
-    [ -n "${ARG_SSH_PRIVATE_KEY}" ] && (
-      local _pri_line
-      _pri_line=$(echo "${ARG_SSH_PRIVATE_KEY}" | tr -d '\n')
-      do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60}**"
-    )
-    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && _ssh_add_known "${ARG_SSH_KNOWN_HOSTS}"
-    [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
-    local _uid='-1'
-    local _ssh="ssh ${SSH_DEBUG_OPTIONS}"
-    _uid=$($_ssh "$_user_host" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
-  }
-  do_ssh_vault_bash_export() {
-    local _url="${1:?}"
-    local _token="${2:?}"
-    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
-    $_ssh "
-    echo \"## fetch from vault: ${_url}\"
-    if [ -z \"\$(command -v jq)\" ]; then echo '## jq is not installed'; exit 0; fi
-    jq -r '.data | to_entries[] | \"export \(.key)=\\\"\(.value)\\\";\"' \
-    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
-    echo \"## fetch from vault exit status \$?\"
-    echo \"echo \"- Bash Injection Finished [\$(date)]\"\"
-    " 2>/dev/null
-  }
-  do_ssh_vault_env_file() {
-    local _url="${1:?}"
-    local _token="${2:?}"
-    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
-    $_ssh "
-    echo \"# fetch from vault: ${_url}\"
-    if [ -z \"\$(command -v jq)\" ]; then echo '## jq is not installed'; exit 0; fi
-    jq -r '.data | to_entries[] | \"\(.key)=\(.value)\"' \
-    <<<\$(curl --max-time 5 -s \"${_url}\" -H \"X-Vault-Token: ${_token}\") 2>/dev/null
-    echo \"# fetch from vault exit status \$?\"
-    " 2>/dev/null
-  }
-  do_ssh_vault_with_key() {
-    local _url="${1}"
-    local _token="${2}"
-    local _key="${3}"
-    local _ssh="${CMD_SSH_DEFAULT:-"ssh ${SSH_USER_HOST:?}"}"
-    $_ssh "
-    if [ -z \"\$(command -v jq)\" ]; then echo ''; exit 0; fi
-    _code=\$(jq -r \".data.${_key:?}\" \
-    <<<\$(curl --max-time 5 -s \"${_url:?}\" -H \"X-Vault-Token: ${_token:?}\") 2>/dev/null)
-    _status=\"\$?\"
-    if [ '0' = \"\$_status\" ] && [ -n \"\$_code\" ] && [ 'null' != \"\$_code\" ]; then
-      printf '%s\n' \"\$_code\"
-    fi
-    " 2>/dev/null
-  }
-  do_ssh_vault_bash_file() {
-    local _url="${1:?}"
-    echo "## fetch from vault: ${_url}##BASH_FILE"
-    do_ssh_vault_with_key "${_url}" "${2:?}" 'BASH_FILE'
-    echo "echo \"- Bash Injection Finished [\$(date)]\""
-  }
+  define_util_ssh
   init_ssh_do() {
-    if [ -z "${SSH_USER}" ] && [ -n "${SSH_USER_PREFIX}" ]; then
-      SSH_USER="${SSH_USER_PREFIX}-${ENV_NAME:?}"
-    fi
+    do_print_info "# ${FUNCNAME[*]}"
+    declare -xa ADDED_USER_HOST=()
     _ssh_agent_init
-    _ssh_add_user_default
-    do_vault_bash_inject 'do_ssh_vault_bash_export' 'env'
-  }
-  _ssh_add_user_default() {
-    ARG_SSH_USER=${SSH_USER:?}
-    ARG_SSH_HOST="${SSH_HOST:?}"
-    ARG_SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS}"
-    ARG_SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY}"
-    do_ssh_add_user
-    SSH_USER_HOST="${SSH_USER}@${SSH_HOST}"
-    CMD_SSH_DEFAULT="ssh -o ConnectTimeout=3 ${SSH_USER_HOST}"
-  }
-  _ssh_add_key() {
-    do_print_info "# ssh-add"
-    echo "${1:?}" | tr -d '\r' | ssh-add - >/dev/null
-    do_print_info "# ssh-add $?"
-  }
-  _ssh_add_known() {
-    echo "${1:?}" >>~/'.ssh/known_hosts'
-  }
-  _ssh_agent_init() {
-    if [ -z "$(command -v ssh-agent)" ]; then
-      do_print_warn 'Error: ssh-agent is not installed'
-      exit 120
-    fi
-    if [ -z "$(command -v ssh-add)" ]; then
-      do_print_warn 'Error: ssh-add is not installed'
-      exit 120
-    fi
-    do_print_info "# ssh-agent"
-    eval "$(ssh-agent -s)"
-    do_print_info "# ssh-agent $?"
-    mkdir -p ~/.ssh
-    touch ~/.ssh/known_hosts
-    chmod 644 ~/'.ssh/known_hosts'
-    chmod 700 ~/'.ssh'
+    do_ssh_add_user_default
+    init_inject_env_bash_do
   }
 } # define_common_init_ssh
 
@@ -282,17 +428,18 @@ define_common_init_ssh() {
 
 define_common_build() {
   do_build_ci_info() {
-    [ -n "${1}" ] && _template_file="${1}"
+    local _template_file="${1}"
+    local _sed='sed -i -e'
     do_print_info 'BUILD CI/CD INFO' "${_template_file:?}"
-    sed -i -e "s|#CD_ENVIRONMENT|${ENV_NAME:?}|g" "$_template_file"
-    sed -i -e "s|#CD_VERSION_TAG|${CD_VERSION_TAG:?}|g" "$_template_file"
-    sed -i -e "s|#CI_COMMIT_TAG|${CI_COMMIT_TAG}|g" "$_template_file"
-    sed -i -e "s|#CI_PIPELINE_ID|${CI_PIPELINE_ID}|g" "$_template_file"
-    sed -i -e "s|#CI_JOB_ID|${CI_JOB_ID}|g" "$_template_file"
-    sed -i -e "s|#CI_COMMIT_REF_NAME|${CI_COMMIT_REF_NAME}|g" "$_template_file"
-    sed -i -e "s|#CI_COMMIT_SHA|${CI_COMMIT_SHA}|g" "$_template_file"
-    sed -i -e "s|#CI_COMMIT_SHORT_SHA|${CI_COMMIT_SHORT_SHA}|g" "$_template_file"
-    sed -i -e "s|#CI_COMMIT_TITLE|${CI_COMMIT_TITLE}|g" "$_template_file"
+    $_sed "s|#CD_ENVIRONMENT|${ENV_NAME:?}|g" "$_template_file"
+    $_sed "s|#CD_VERSION_TAG|${CD_VERSION_TAG:?}|g" "$_template_file"
+    $_sed "s|#CI_COMMIT_TAG|${CI_COMMIT_TAG}|g" "$_template_file"
+    $_sed "s|#CI_PIPELINE_ID|${CI_PIPELINE_ID}|g" "$_template_file"
+    $_sed "s|#CI_JOB_ID|${CI_JOB_ID}|g" "$_template_file"
+    $_sed "s|#CI_COMMIT_REF_NAME|${CI_COMMIT_REF_NAME}|g" "$_template_file"
+    $_sed "s|#CI_COMMIT_SHA|${CI_COMMIT_SHA}|g" "$_template_file"
+    $_sed "s|#CI_COMMIT_SHORT_SHA|${CI_COMMIT_SHORT_SHA}|g" "$_template_file"
+    $_sed "s|#CI_COMMIT_TITLE|${CI_COMMIT_TITLE}|g" "$_template_file"
     do_print_info 'BUILD CI/CD INFO DONE'
   }
 } # define_common_build
@@ -301,7 +448,6 @@ define_common_build() {
 
 define_common_upload() {
   do_upload() {
-    _upload_ssh_add_user
     do_print_info 'UPLOAD SERVICE'
     [ -n "${1}" ] && SERVICE_NAME="${1}"
     [ -n "${2}" ] && SERVICE_GROUP="${2}"
@@ -353,14 +499,6 @@ define_common_upload() {
     do_print_info 'UPLOAD CLEANUP REMOTE'
     $_ssh "rm -rf '${UPLOAD_REMOTE_DIR:?}'/*" && do_print_info 'UPLOAD CLEANUP REMOTE OK'
   }
-  _upload_ssh_add_user() {
-    ARG_SSH_USER="${UPLOAD_SSH_USER:=${SSH_USER:?}}"
-    ARG_SSH_PRIVATE_KEY="${UPLOAD_SSH_PRIVATE_KEY:=${SSH_PRIVATE_KEY}}"
-    ARG_SSH_HOST="${UPLOAD_SSH_HOST:=${JUMPER_SSH_HOST:-${SSH_HOST:?}}}"
-    ARG_SSH_KNOWN_HOSTS="${UPLOAD_SSH_KNOWN_HOSTS:=${JUMPER_SSH_KNOWN_HOSTS:-${SSH_KNOWN_HOSTS}}}"
-    do_ssh_add_user
-    UPLOAD_USER_HOST="${UPLOAD_SSH_USER}@${UPLOAD_SSH_HOST}"
-  }
 } # define_common_upload
 
 #===============================================================================
@@ -411,19 +549,16 @@ define_common_service() {
     fi " && do_print_info "INSPECT OK [${SERVICE_LOCATION}]"
   }
   service_common_do() {
+    do_ssh_reset_service
     do_print_dash_pair 'Required Arguments'
     do_print_dash_pair 'SERVICE_NAME' "${SERVICE_NAME:?}"
     do_print_dash_pair 'SERVICE_GROUP' "${SERVICE_GROUP:?}"
-    _service_ssh_user_host
-    _service_ssh_add_user_jumper
     do_print_dash_pair 'Common Variables'
     SERVICE_GROUP_DIR="/home/${SERVICE_USER}/${SERVICE_GROUP}"
     SERVICE_DIR="${SERVICE_GROUP_DIR}/${SERVICE_NAME}"
     SERVICE_LOCATION="${SERVICE_USER_HOST:?}:${SERVICE_DIR}"
     do_print_dash_pair 'SERVICE_LOCATION' "${SERVICE_LOCATION}"
-    SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN')"
-    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL')/runtime"
-    do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
+    _service_vault_reset
     SERVICE_UPLOAD_DIR="/home/${UPLOAD_SSH_USER:?}/${SERVICE_GROUP}/${SERVICE_NAME}-${CD_VERSION_TAG:?}"
     UPLOAD_LOCATION="${UPLOAD_SSH_USER}@${JUMPER_SSH_HOST}:${SERVICE_UPLOAD_DIR}"
     do_print_dash_pair 'UPLOAD_LOCATION' "${UPLOAD_LOCATION}"
@@ -431,31 +566,19 @@ define_common_service() {
     _service_reset_status
     _service_check_version
   }
+  _service_vault_reset() {
+    SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN_RUNTIME')"
+    [ -z "${SERVICE_VAULT_TOKEN}" ] && SERVICE_VAULT_TOKEN="${VAULT_TOKEN}"
+    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL_RUNTIME')/runtime"
+    [ -z "${SERVICE_VAULT_URL}" ] && SERVICE_VAULT_URL="${VAULT_URL}"
+    do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
+  }
   _service_vault_variable() {
-    do_print_variable \
-      "$(echo "${CUSTOMER:?}" | tr '[:lower:]' '[:upper:]')_" "${1:?}" \
-      "_$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
-  }
-  _service_ssh_variable() {
-    do_print_variable \
-      "$(echo "${SERVICE_GROUP:?}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')_" "${1:?}" \
-      "_$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
-  }
-  _service_ssh_user_host() {
-    SERVICE_USER="$(_service_ssh_variable 'SERVICE_SSH_USER')"
-    do_print_dash_pair 'SERVICE_USER' "${SERVICE_USER}"
-    SERVICE_HOST="$(_service_ssh_variable 'SERVICE_SSH_HOST')"
-    do_print_dash_pair 'SERVICE_HOST' "${SERVICE_HOST}"
-    SERVICE_USER_HOST="${SERVICE_USER:?}@${SERVICE_HOST:?}"
-  }
-  _service_ssh_add_user_jumper() {
-    ARG_SSH_USER="${JUMPER_SSH_USER:=${UPLOAD_SSH_USER:-${SSH_USER:?}}}"
-    ARG_SSH_PRIVATE_KEY="${JUMPER_SSH_PRIVATE_KEY:-${UPLOAD_SSH_PRIVATE_KEY:-${SSH_PRIVATE_KEY}}}"
-    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
-    ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
-    do_ssh_add_user
-    JUMPER_USER_HOST="${JUMPER_SSH_USER}@${JUMPER_SSH_HOST}"
-    UPLOAD_SSH_USER="${UPLOAD_SSH_USER:=${JUMPER_SSH_USER:-${SSH_USER:?}}}"
+    local _prefix=''
+    [ -n "${CUSTOMER}" ] && _prefix="$(echo "${CUSTOMER}" | tr '[:lower:]' '[:upper:]')_"
+    local _suffix=''
+    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
+    do_print_variable "${_prefix//-/_}" "${1:?}" "${_suffix}"
   }
   _service_reset_status() {
     do_print_dash_pair 'Runtime Variables'
@@ -540,7 +663,7 @@ define_common_deploy() {
     local _code
     [ -z "${_path}" ] && _path="${SERVICE_GROUP:?}/${CUSTOMER:?}-env"
     local _url="${SERVICE_VAULT_URL:?}/${_path}"
-    _code="$(do_ssh_vault_env_file "${_url}" "${SERVICE_VAULT_TOKEN:?}")"
+    _code="$(do_vault_fetch_env_file "${_url}" "${SERVICE_VAULT_TOKEN:?}")"
     do_print_info "${_code}"
     do_on_deploy_host "echo \'$_code\' >>\'${DEPLOY_ENV_SRC:?}\'"
   }
@@ -558,7 +681,7 @@ define_common_deploy() {
     do_print_info "- fetch from ${_url} ## ${_content_key:?}"
     do_print_info "- fetch to ${UPLOAD_SSH_USER}@${JUMPER_SSH_HOST}:${_remote_path}"
     local _file_content
-    _file_content="$(do_ssh_vault_with_key "${_url}" "${VAULT_TOKEN:?}" "${_content_key}")"
+    _file_content="$(do_vault_fetch_with_key "${_url}" "${VAULT_TOKEN:?}" "${_content_key}")"
     if [ -z "${_file_content}" ]; then
       do_print_warn '- fetched nothing'
       return 0
@@ -783,6 +906,37 @@ define_common_deploy() {
     " && do_print_info 'WRITE DEPLOY LOG OK'
   }
 } # define_common_deploy
+
+#===============================================================================
+
+define_common_ci_job() {
+  build_job_do() {
+    do_print_section 'BUILD JOB BEGIN'
+    do_func_invoke "build_custom_do"
+    do_print_section 'BUILD JOB DONE!' && echo ''
+  }
+  upload_job_do() {
+    do_print_section 'UPLOAD JOB BEGIN'
+    do_ssh_add_user_upload
+    do_upload_cleanup_local
+    do_func_invoke "upload_custom_do"
+    do_print_section 'UPLOAD JOB DONE!' && echo ''
+  }
+  deploy_job_do() {
+    do_print_section 'DEPLOY JOB BEGIN'
+    do_ssh_add_user_jumper
+    do_func_invoke "deploy_custom_do"
+    do_func_invoke "deploy_${ENV_NAME:?}_do"
+    do_print_section 'DEPLOY JOB DONE!' && echo ''
+  }
+  verify_job_do() {
+    do_print_section 'VERIFY JOB BEGIN'
+    do_ssh_add_user_jumper
+    do_func_invoke "verify_custom_do"
+    do_func_invoke "verify_${ENV_NAME:?}_do"
+    do_print_section 'VERIFY JOB DONE!' && echo ''
+  }
+} # define_common_job
 
 #===============================================================================
 # end of file: .gitlab-ci.lib.sh
