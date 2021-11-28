@@ -1,43 +1,79 @@
 #!/bin/bash
+
 set -eo pipefail
+declare -ax SSH_EXPORT_FUN=()
+declare -ax SSH_EXPORT_VAR=()
 
 #===============================================================================
 
 define_util_ssh() {
+  do_ssh_export() {
+    local _name="${1}"
+    if [ "$(type -t "${_name}")" = 'function' ]; then
+      if [[ "${SSH_EXPORT_FUN[*]}" =~ ${_name} ]]; then return; fi
+      SSH_EXPORT_FUN+=("${_name}")
+    else
+      if [ -z "${!_name}" ]; then
+        echo "## $(whoami)@$(hostname): not a function/variable name '${_name}'"
+        return
+      else
+        if [[ "${SSH_EXPORT_VAR[*]}" =~ ${_name} ]]; then return; fi
+        SSH_EXPORT_VAR+=("${_name}")
+      fi
+    fi
+  }
+  do_ssh_export_clear() {
+    SSH_EXPORT_FUN=()
+    SSH_EXPORT_VAR=()
+  }
   do_invoke_on_jumper() {
     do_ssh_invoke "${JUMPER_USER_HOST:?}" "${@}"
-    IMPORT_FUNCTION=()
   }
   do_invoke_on_server() {
     local _func_name="${1}"
-    IMPORT_FUNCTION+=("${_func_name:?}")
-    do_ssh_invoke "${JUMPER_USER_HOST:?}" do_ssh_invoke "${SERVICE_USER_HOST:?}" "${@}"
-    IMPORT_FUNCTION=()
+    do_ssh_export "${_func_name:?}"
+    do_exec_on_server "${@}"
+  }
+  do_exec_on_jumper() {
+    do_ssh_exec "$(do_exec_ssh_chain "${JUMPER_USER_HOST:?}")" "${@}"
+  }
+  do_exec_on_server() {
+    do_ssh_exec "$(do_exec_ssh_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
+  }
+  do_exec_ssh_chain() {
+    local _ssh='ssh -o ConnectTimeout=3 -T'
+    local _chain
+    printf -v _chain '%s %s' "${_ssh}" "${1:?}"
+    for i in "${@:2}"; do
+      printf -v _chain '%s -- %s %s' "${_chain}" "${_ssh}" "${i}"
+    done
+    printf '%s' "${_chain}"
   }
   do_ssh_invoke() {
     local _user_host="${1}"
     local _func_name="${2}"
-    local _command="${_func_name:?} ${*:3}"
-    if [[ ! "${IMPORT_FUNCTION[*]}" =~ ${_func_name} ]]; then
-      IMPORT_FUNCTION+=("${_func_name}")
-    fi
-    printf -v _command '%s\n%s' "$(declare -p IMPORT_FUNCTION)" "${_command}"
-    printf -v _command '%s\n%s' "$(declare -p OPTION_DEBUG)" "${_command}"
-    for i in "${IMPORT_FUNCTION[@]}"; do
-      if [ "$(type -t "${i}")" != function ]; then
-        echo "## $(whoami)@$(hostname): not a function name: ${i}"
-        return 0
-      fi
+    do_ssh_export "${_func_name:?}"
+    do_ssh_exec "$(do_exec_ssh_chain "${_user_host:?}")" "${@:2}"
+  }
+  do_ssh_exec() {
+    local _ssh="${1}"
+    local _command="${*:2}"
+    do_ssh_export OPTION_DEBUG
+    do_ssh_export SSH_EXPORT_FUN
+    do_ssh_export SSH_EXPORT_VAR
+    for i in "${SSH_EXPORT_VAR[@]}"; do
+      printf -v _command '%s\n%s' "$(declare -p "${i}")" "${_command}"
+    done
+    for i in "${SSH_EXPORT_FUN[@]}"; do
       printf -v _command '%s\n%s' "$(declare -f "${i}")" "${_command}"
     done
-    local _ssh="ssh -o ConnectTimeout=3 -T ${SSH_DEBUG_OPTIONS} ${_user_host}"
     local _hint
-    _hint="[$(date)] $(whoami)@$(hostname) --> ${_ssh}"
+    _hint="[$(date)] $(whoami)@$(hostname) --> ${_ssh:?}"
     printf -v _command '%s\n%s' "## BEGIN: ${_hint}" "${_command}"
     printf -v _command '%s\n%s' "${_command}" "## END: ${_hint}"
     do_print_debug "${_command}"
     do_print_debug "# ${FUNCNAME[*]}"
-    $_ssh "${_command}"
+    echo "${_command}" | ${_ssh} -- /bin/bash -eo pipefail -s -
   }
   do_ssh_add_user_default() {
     eval "$(_ssh_user_declare)"
@@ -194,9 +230,10 @@ define_util_vault() {
   }
   do_vault_with_ssh() {
     local _local_func_name="${1}"
-    IMPORT_FUNCTION=(do_vault_fetch_local do_vault_check do_print_debug)
-    do_ssh_invoke "${SSH_USER_HOST:?}" "${_local_func_name:?}" "${*:2}" 2>/dev/null
-    IMPORT_FUNCTION=()
+    do_ssh_export do_vault_fetch_local
+    do_ssh_export do_vault_check
+    local _user_host=${UPLOAD_USER_HOST:-${JUMPER_USER_HOST:-${SSH_USER_HOST}}}
+    do_ssh_invoke "${_user_host:?}" "${_local_func_name:?}" "${*:2}" 2>/dev/null
   }
   do_vault_with_ssh_or_local() {
     local _func_name="${1}_local"
