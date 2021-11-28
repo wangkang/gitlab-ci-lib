@@ -34,6 +34,9 @@ define_util_ssh() {
     do_ssh_export "${_func_name:?}"
     do_exec_on_server "${@}"
   }
+  do_exec_on_upload() {
+    do_ssh_exec "$(do_exec_ssh_chain "${UPLOAD_USER_HOST:?}")" "${@}"
+  }
   do_exec_on_jumper() {
     do_ssh_exec "$(do_exec_ssh_chain "${JUMPER_USER_HOST:?}")" "${@}"
   }
@@ -494,19 +497,17 @@ define_common_upload() {
     do_print_dash_pair 'SERVICE_NAME' "${SERVICE_NAME}"
     do_print_dash_pair 'RUNNER_USER_HOST' "${RUNNER_USER_HOST}"
     do_print_dash_pair 'RUNNER_LOCAL_DIR' "${RUNNER_LOCAL_DIR:?}"
-    do_print_dash_pair 'UPLOAD_USER_HOST' "${UPLOAD_USER_HOST}"
+    do_print_dash_pair 'UPLOAD_USER_HOST' "${UPLOAD_USER_HOST:?}"
     do_print_dash_pair 'UPLOAD_REMOTE_DIR' "${UPLOAD_REMOTE_DIR}"
     find "${RUNNER_LOCAL_DIR}" -type d -exec chmod 770 {} +
     find "${RUNNER_LOCAL_DIR}" -type f -exec chmod 660 {} +
     find "${RUNNER_LOCAL_DIR}" -type f -exec ls -lhA {} +
     do_print_info 'UPLOAD   ' "$(date +'%T')"
-    _ssh="ssh ${UPLOAD_USER_HOST}"
-    _scp="scp -rpC -o StrictHostKeyChecking=no"
-    $_ssh "mkdir -p ${UPLOAD_REMOTE_DIR}" || (
+    local _scp="scp -rpC -o StrictHostKeyChecking=no"
+    do_exec_on_upload "mkdir -p ${UPLOAD_REMOTE_DIR}" || {
       do_print_warn 'mkdir fail'
-      print_warn_do
       exit 120
-    )
+    }
     _upload_cleanup_remote
     if ! $_scp "${RUNNER_LOCAL_DIR}"/* "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
       do_print_warn 'UPLOAD FAILED'
@@ -514,15 +515,15 @@ define_common_upload() {
     else
       do_print_info 'UPLOAD OK' "$(date +'%T')"
     fi
-    $_ssh "cd ${UPLOAD_REMOTE_DIR}           \
-      && touch ./CD_VERSION                  \
-      && echo ${VERSION_BUILDING:?} > ./CD_VERSION \
-      && chmod 640 ./CD_VERSION \
-      && find ${UPLOAD_REMOTE_DIR} -type f -exec ls -lhA {} + \
-    " || (
+    do_exec_on_upload "
+      cd '${UPLOAD_REMOTE_DIR}' && \
+      touch ./CD_VERSION && \
+      echo ${VERSION_BUILDING:?} >./CD_VERSION && \
+      chmod 640 ./CD_VERSION && \
+      find ${UPLOAD_REMOTE_DIR} -type f -exec ls -lhA {} +
+    " || {
       do_print_warn 'UPLOAD REMOTE JOB FAILED'
-      print_warn_do
-    )
+    }
     do_upload_cleanup_local
     do_print_info 'UPLOAD SERVICE DONE'
   }
@@ -534,7 +535,7 @@ define_common_upload() {
   }
   _upload_cleanup_remote() {
     do_print_info 'UPLOAD CLEANUP REMOTE'
-    $_ssh "rm -rf '${UPLOAD_REMOTE_DIR:?}'/*" && do_print_info 'UPLOAD CLEANUP REMOTE OK'
+    do_exec_on_upload "rm -rf '${UPLOAD_REMOTE_DIR:?}'/*" && do_print_info 'UPLOAD CLEANUP REMOTE OK'
   }
 } # define_common_upload
 
