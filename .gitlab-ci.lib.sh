@@ -68,11 +68,10 @@ define_util_ssh() {
       printf -v _command '%s\n%s' "$(declare -f "${i}")" "${_command}"
     done
     local _hint
-    _hint="[$(date)] $(whoami)@$(hostname) --> ${_ssh:?}"
+    _hint="[$(date)] --> ${_ssh:?}"
     printf -v _command '%s\n%s' "## BEGIN: ${_hint}" "${_command}"
     printf -v _command '%s\n%s' "${_command}" "## END: ${_hint}"
     do_print_debug "${_command}"
-    do_print_debug "# ${FUNCNAME[*]}"
     echo "${_command}" | ${_ssh} -- /bin/bash -eo pipefail -s -
   }
   do_ssh_add_user_default() {
@@ -213,17 +212,15 @@ define_util_vault() {
     _command="$(eval "${_func}" "${_url}" "${VAULT_TOKEN:?}")"
     local _line_count
     _line_count=$(echo "${_command}" | wc -l | xargs)
-    do_print_info "- fetch from vault: ${_line_count} lines"
     do_print_debug "${_command}"
+    do_print_info "- fetch from vault: ${_line_count} lines"
     eval "${_command}"
   }
   do_vault_check() {
     if [ -z "$(command -v jq)" ]; then
-      echo '## jq is not installed'
       return 2
     fi
     if [ -z "$(command -v curl)" ]; then
-      echo '## curl is not installed'
       return 1
     fi
     return 0
@@ -234,24 +231,6 @@ define_util_vault() {
     do_ssh_export do_vault_check
     local _user_host=${UPLOAD_USER_HOST:-${JUMPER_USER_HOST:-${SSH_USER_HOST}}}
     do_ssh_invoke "${_user_host:?}" "${_local_func_name:?}" "${*:2}" 2>/dev/null
-  }
-  do_vault_with_ssh_or_local() {
-    local _func_name="${1}_local"
-    if ! do_vault_check; then
-      do_vault_with_ssh "${_func_name:?}" "${*:2}"
-    else
-      eval "${_func_name:?}" "${*:2}"
-    fi
-  }
-  do_vault_fetch_local() {
-    local _url="${1}"
-    local _token="${2}"
-    local _jq_cmd="${3}"
-    printf '%s\n' "## generated at [$(date)] by $(whoami)@$(hostname)"
-    printf '%s\n' "## fetch from vault: ${_url:?} .data.*"
-    if ! do_vault_check; then return; fi
-    jq -r "${_jq_cmd:?}" <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")" 2>/dev/null
-    printf '%s\n' "## fetch from vault exit status ${?}"
   }
   do_vault_fetch_env_file() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
   do_vault_fetch_env_file_local() {
@@ -273,12 +252,26 @@ define_util_vault() {
     local _url="${1}"
     local _token="${2}"
     local _key="${3}"
-    printf '%s\n' "## generated at [$(date)] by $(whoami)@$(hostname)"
-    printf '%s\n' "## fetch from vault: ${_url:?} .data.${_key:?}"
+    local _jq_cmd=".data.${_key}"
+    do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
+  }
+  do_vault_with_ssh_or_local() {
+    local _func_name="${1}_local"
+    if ! do_vault_check; then
+      do_vault_with_ssh "${_func_name:?}" "${*:2}"
+    else
+      eval "${_func_name:?}" "${*:2}"
+    fi
+  }
+  do_vault_fetch_local() {
+    local _url="${1}"
+    local _token="${2}"
+    local _jq_cmd="${3}"
+    local _value
+    printf '%s\n' "## fetch from vault: ${_url:?} .data.${_key:-"*"} -- $(whoami)@$(hostname)"
     if ! do_vault_check; then return; fi
-    _value=$(jq -r ".data.${_key}" \
-      <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")" 2>/dev/null)
-    _status="${?}"
+    _value=$(jq -r "${_jq_cmd:?}" <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")" 2>/dev/null)
+    local _status="${?}"
     if [ '0' = "${_status}" ] && [ -n "${_value}" ] && [ 'null' != "${_value}" ]; then
       printf '%s\n' "${_value}"
     fi
@@ -301,10 +294,13 @@ define_util_print() {
   do_print_debug() {
     local _enabled=${OPTION_DEBUG:='no'}
     if [ 'yes' != "${_enabled}" ]; then return 0; fi
-    if [ $# -gt 1 ]; then
-      printf '\033[0;35m%s\033[0m %s\n' "$1" "$2"
-    elif [ $# -gt 0 ]; then
-      printf '\033[0;35m%s\033[0m\n' "$1"
+    local _color='#\033[0;35m'
+    local _clear='#\033[0m'
+    if [ $# -gt 0 ]; then
+      printf "#==== ${_color}%s -- %s${_clear}\n" 'DEBUG BEGIN' "${FUNCNAME[*]}"
+      #printf "${_color}%s${_clear}\n" "${1}" | sed 's|^|#:|'
+      printf "${_color}%s${_clear}\n" "${1}" | awk '{printf "#%3d: %s\n", NR, $0}'
+      printf "#==== ${_color}%s -- %s${_clear}\n" 'DEBUG END' "${FUNCNAME[*]}"
     else printf ''; fi
   }
   do_print_info() {
@@ -354,7 +350,7 @@ define_common_init() {
   define_util_vault
   define_common_ci_job
   do_func_invoke() {
-    [ -n "${1}" ] && _func_name="${1}"
+    local _func_name="${1}"
     if [ "$(type -t "${_func_name:?}")" != function ]; then
       do_print_info "# $_func_name is absent as a function"
     else
@@ -694,13 +690,17 @@ define_common_deploy() {
     do_inspect_container
   }
   do_deploy_vault_env() {
+    do_print_info "# ${FUNCNAME[*]}"
     local _path="${1}"
     local _code
     [ -z "${_path}" ] && _path="${SERVICE_GROUP:?}/${CUSTOMER:?}-env"
     local _url="${SERVICE_VAULT_URL:?}/${_path}"
+    do_print_info "- fetch from vault: ${_url}"
     _code="$(do_vault_fetch_env_file "${_url}" "${SERVICE_VAULT_TOKEN:?}")"
-    do_print_info "${_code}"
-    do_on_deploy_host "echo \'$_code\' >>\'${DEPLOY_ENV_SRC:?}\'"
+    local _line_count
+    _line_count=$(echo "${_code}" | wc -l | xargs)
+    do_print_info "- fetch from vault: ${_line_count} lines"
+    do_exec_on_server "printf '%s\n' '${_code}' >>'${DEPLOY_ENV_SRC:?}'"
   }
   do_deploy_vault_patch() {
     do_print_info "# ${FUNCNAME[0]}"
