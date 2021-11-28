@@ -1,11 +1,11 @@
 #!/bin/bash
 
 set -eo pipefail
-declare -ax SSH_EXPORT_FUN=()
-declare -ax SSH_EXPORT_VAR=()
 
 #===============================================================================
 
+declare -ax SSH_EXPORT_FUN=('do_print_debug')
+declare -ax SSH_EXPORT_VAR=('OPTION_DEBUG' 'SSH_EXPORT_VAR' 'SSH_EXPORT_FUN')
 define_util_ssh() {
   do_ssh_export() {
     local _name="${1}"
@@ -23,8 +23,8 @@ define_util_ssh() {
     fi
   }
   do_ssh_export_clear() {
-    SSH_EXPORT_FUN=()
-    SSH_EXPORT_VAR=()
+    SSH_EXPORT_FUN=('do_print_debug')
+    SSH_EXPORT_VAR=('OPTION_DEBUG' 'SSH_EXPORT_VAR' 'SSH_EXPORT_FUN')
   }
   do_invoke_on_jumper() {
     do_ssh_invoke "${JUMPER_USER_HOST:?}" "${@}"
@@ -61,9 +61,6 @@ define_util_ssh() {
   do_ssh_exec() {
     local _ssh="${1}"
     local _command="${*:2}"
-    do_ssh_export OPTION_DEBUG
-    do_ssh_export SSH_EXPORT_FUN
-    do_ssh_export SSH_EXPORT_VAR
     for i in "${SSH_EXPORT_VAR[@]}"; do
       printf -v _command '%s\n%s' "$(declare -p "${i}")" "${_command}"
     done
