@@ -4,46 +4,86 @@ set -eo pipefail
 
 #===============================================================================
 
+define_util_core() {
+  do_here() {
+    local _func_name="${1}"
+    local _input
+    _input="$(timeout 2s cat /dev/stdin || true)"
+    if [ -n "${_input}" ]; then
+      eval "${_func_name:?}" "'${_input}'"
+    else
+      echo "Warning: empty stdin, ${_func_name}() was cancelled" >&2
+    fi
+  }
+  do_dir_list() {
+    local _dir="${1}"
+    [ ! -d "${_dir:?}" ] && { return; }
+    find "${_dir}" -type f -exec ls -lhA {} +
+  }
+  do_dir_make() {
+    local _dir="${1}"
+    local _hint
+    [ -d "${_dir:?}" ] && { return; }
+    if ! _hint=$(mkdir -p "${_dir}" 2>&1); then
+      do_print_warn "[$(whoami)@$(hostname) $(pwd)]$ mkdir -p ${_dir}"
+      do_print_warn "${_hint}"
+    fi
+  }
+  do_dir_clean() {
+    local _dir="${1}"
+    local _hint
+    [ ! -d "${_dir:?}" ] && { return; }
+    if ! _hint=$(rm -rf "${_dir:?}/"* 2>&1); then
+      do_print_warn "[$(whoami)@$(hostname) $(pwd)]$ rm -rf \"${_dir}/\"*"
+      do_print_warn "${_hint}"
+      do_print_warn "$(find "${_dir}" -type f -exec ls -lhA {} +)"
+    fi
+  }
+}
+
 declare -ax SSH_EXPORT_FUN=('do_print_debug')
 declare -ax SSH_EXPORT_VAR=('OPTION_DEBUG' 'SSH_EXPORT_VAR' 'SSH_EXPORT_FUN')
 define_util_ssh() {
   do_ssh_export() {
-    local _name="${1}"
-    if [ "$(type -t "${_name}")" = 'function' ]; then
-      if [[ "${SSH_EXPORT_FUN[*]}" =~ ${_name} ]]; then return; fi
-      SSH_EXPORT_FUN+=("${_name}")
-    else
-      if [ -z "${!_name}" ]; then
-        echo "## $(whoami)@$(hostname): not a function/variable name '${_name}'"
-        return
+    for i in "${@}"; do
+      local _name="${i}"
+      if [ "$(type -t "${_name}")" = 'function' ]; then
+        if [[ "${SSH_EXPORT_FUN[*]}" =~ ${_name} ]]; then return; fi
+        SSH_EXPORT_FUN+=("${_name}")
       else
-        if [[ "${SSH_EXPORT_VAR[*]}" =~ ${_name} ]]; then return; fi
-        SSH_EXPORT_VAR+=("${_name}")
+        if [ -z "${!_name}" ]; then
+          echo "## $(whoami)@$(hostname): not a function/variable name '${_name}'" >&2
+          continue
+        else
+          if [[ "${SSH_EXPORT_VAR[*]}" =~ ${_name} ]]; then return; fi
+          SSH_EXPORT_VAR+=("${_name}")
+        fi
       fi
-    fi
+    done
   }
   do_ssh_export_clear() {
     SSH_EXPORT_FUN=('do_print_debug')
     SSH_EXPORT_VAR=('OPTION_DEBUG' 'SSH_EXPORT_VAR' 'SSH_EXPORT_FUN')
   }
-  do_invoke_on_jumper() {
-    do_ssh_invoke "${JUMPER_USER_HOST:?}" "${@}"
-  }
+  do_invoke_on_upload() { do_ssh_invoke "${UPLOAD_USER_HOST:?}" "${@}"; }
+  do_invoke_on_jumper() { do_ssh_invoke "${JUMPER_USER_HOST:?}" "${@}"; }
   do_invoke_on_server() {
     local _func_name="${1}"
     do_ssh_export "${_func_name:?}"
     do_exec_on_server "${@}"
   }
-  do_exec_on_upload() {
-    do_ssh_exec "$(do_exec_ssh_chain "${UPLOAD_USER_HOST:?}")" "${@}"
-  }
-  do_exec_on_jumper() {
-    do_ssh_exec "$(do_exec_ssh_chain "${JUMPER_USER_HOST:?}")" "${@}"
-  }
+  do_ssh_exec_upload() { do_ssh_exec "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
+  do_exec_on_jumper() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
   do_exec_on_server() {
-    do_ssh_exec "$(do_exec_ssh_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
+    do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
   }
-  do_exec_ssh_chain() {
+  do_ssh_invoke() {
+    local _user_host="${1}"
+    local _func_name="${2}"
+    do_ssh_export "${_func_name:?}"
+    do_ssh_exec "$(do_ssh_exec_chain "${_user_host:?}")" "${@:2}"
+  }
+  do_ssh_exec_chain() {
     local _ssh='ssh -o ConnectTimeout=3 -T'
     local _chain
     printf -v _chain '%s %s' "${_ssh}" "${1:?}"
@@ -51,12 +91,6 @@ define_util_ssh() {
       printf -v _chain '%s -- %s %s' "${_chain}" "${_ssh}" "${i}"
     done
     printf '%s' "${_chain}"
-  }
-  do_ssh_invoke() {
-    local _user_host="${1}"
-    local _func_name="${2}"
-    do_ssh_export "${_func_name:?}"
-    do_ssh_exec "$(do_exec_ssh_chain "${_user_host:?}")" "${@:2}"
   }
   do_ssh_exec() {
     local _ssh="${1}"
@@ -227,8 +261,7 @@ define_util_vault() {
   }
   do_vault_with_ssh() {
     local _local_func_name="${1}"
-    do_ssh_export do_vault_fetch_local
-    do_ssh_export do_vault_check
+    do_ssh_export do_vault_check do_vault_fetch_local
     local _user_host=${UPLOAD_USER_HOST:-${JUMPER_USER_HOST:-${SSH_USER_HOST}}}
     do_ssh_invoke "${_user_host:?}" "${_local_func_name:?}" "${*:2}" 2>/dev/null
   }
@@ -259,6 +292,7 @@ define_util_vault() {
     local _func_name="${1}_local"
     if ! do_vault_check; then
       do_vault_with_ssh "${_func_name:?}" "${*:2}"
+      do_ssh_export_clear
     else
       eval "${_func_name:?}" "${*:2}"
     fi
@@ -294,13 +328,14 @@ define_util_print() {
   do_print_debug() {
     local _enabled=${OPTION_DEBUG:='no'}
     if [ 'yes' != "${_enabled}" ]; then return 0; fi
-    local _color='#\033[0;35m'
-    local _clear='#\033[0m'
+    local _color='\033[0;35m'
+    local _clear='\033[0m'
     if [ $# -gt 0 ]; then
-      printf "#==== ${_color}%s -- %s${_clear}\n" 'DEBUG BEGIN' "${FUNCNAME[*]}"
+      local _n=$((${#FUNCNAME[@]} - 2))
+      printf "#==== ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN ' "${FUNCNAME[*]:1:${_n}}"
       #printf "${_color}%s${_clear}\n" "${1}" | sed 's|^|#:|'
-      printf "${_color}%s${_clear}\n" "${1}" | awk '{printf "#%3d: %s\n", NR, $0}'
-      printf "#==== ${_color}%s -- %s${_clear}\n" 'DEBUG END' "${FUNCNAME[*]}"
+      printf "${_color}%s${_clear}\n" "${1}" | awk '{printf "#%3d| %s\n", NR, $0}'
+      printf "#==== ${_color}%s-- %s${_clear}\n" 'DEBUG END --' "${FUNCNAME[*]:1:${_n}}"
     else printf ''; fi
   }
   do_print_info() {
@@ -346,6 +381,7 @@ define_util_print() {
 #===============================================================================
 
 define_common_init() {
+  define_util_core
   define_util_print
   define_util_vault
   define_common_ci_job
@@ -482,41 +518,29 @@ define_common_build() {
 define_common_upload() {
   do_upload() {
     do_print_info 'UPLOAD SERVICE'
-    [ -n "${1}" ] && SERVICE_NAME="${1}"
-    [ -n "${2}" ] && SERVICE_GROUP="${2}"
-    RUNNER_USER_HOST="$(whoami)@$(hostname)"
+    SERVICE_NAME="${1}"
+    SERVICE_GROUP="${2}"
     UPLOAD_REMOTE_DIR="/home/${UPLOAD_SSH_USER:?}/${SERVICE_GROUP:?}/${SERVICE_NAME:?}-${CD_VERSION_TAG:?}"
-    do_print_dash_pair 'SERVICE_GROUP' "${SERVICE_GROUP}"
-    do_print_dash_pair 'SERVICE_NAME' "${SERVICE_NAME}"
-    do_print_dash_pair 'RUNNER_USER_HOST' "${RUNNER_USER_HOST}"
-    do_print_dash_pair 'RUNNER_LOCAL_DIR' "${RUNNER_LOCAL_DIR:?}"
-    do_print_dash_pair 'UPLOAD_USER_HOST' "${UPLOAD_USER_HOST:?}"
-    do_print_dash_pair 'UPLOAD_REMOTE_DIR' "${UPLOAD_REMOTE_DIR}"
-    find "${RUNNER_LOCAL_DIR}" -type d -exec chmod 770 {} +
+    do_print_dash_pair 'RUNNER_LOCATION' "$(whoami)@$(hostname):${RUNNER_LOCAL_DIR:?}"
+    do_print_dash_pair 'REMOTE_LOCATION' "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}"
+    find "${RUNNER_LOCAL_DIR}" -type d -exec chmod 774 {} +
     find "${RUNNER_LOCAL_DIR}" -type f -exec chmod 660 {} +
     find "${RUNNER_LOCAL_DIR}" -type f -exec ls -lhA {} +
     do_print_info 'UPLOAD   ' "$(date +'%T')"
+    local _dir="${UPLOAD_REMOTE_DIR:?}"
     local _scp="scp -rpC -o StrictHostKeyChecking=no"
-    do_exec_on_upload "mkdir -p ${UPLOAD_REMOTE_DIR}" || {
-      do_print_warn 'mkdir fail'
-      exit 120
-    }
-    _upload_cleanup_remote
-    if ! $_scp "${RUNNER_LOCAL_DIR}"/* "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
+    do_ssh_export do_print_warn do_dir_make do_dir_clean
+    do_invoke_on_upload upload_clean_dir_do "${_dir}"
+    do_ssh_export_clear
+    if ! $_scp "${RUNNER_LOCAL_DIR}/" "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
       do_print_warn 'UPLOAD FAILED'
       exit 120
     else
       do_print_info 'UPLOAD OK' "$(date +'%T')"
+      do_ssh_export do_dir_list
+      do_invoke_on_upload upload_cd_version_file_do "${_dir}" "${VERSION_BUILDING:?}"
+      do_ssh_export_clear
     fi
-    do_exec_on_upload "
-      cd '${UPLOAD_REMOTE_DIR}' && \
-      touch ./CD_VERSION && \
-      echo ${VERSION_BUILDING:?} >./CD_VERSION && \
-      chmod 640 ./CD_VERSION && \
-      find ${UPLOAD_REMOTE_DIR} -type f -exec ls -lhA {} +
-    " || {
-      do_print_warn 'UPLOAD REMOTE JOB FAILED'
-    }
     do_upload_cleanup_local
     do_print_info 'UPLOAD SERVICE DONE'
   }
@@ -526,9 +550,16 @@ define_common_upload() {
     mkdir -p "${RUNNER_LOCAL_DIR:?}"
     rm -rf "${RUNNER_LOCAL_DIR:?}/"* && do_print_info 'UPLOAD CLEANUP LOCAL OK'
   }
-  _upload_cleanup_remote() {
-    do_print_info 'UPLOAD CLEANUP REMOTE'
-    do_exec_on_upload "rm -rf '${UPLOAD_REMOTE_DIR:?}'/*" && do_print_info 'UPLOAD CLEANUP REMOTE OK'
+  upload_clean_dir_do() {
+    do_dir_clean "${1}"
+    do_dir_make "${1}"
+  }
+  upload_cd_version_file_do() {
+    local _dir="${1}"
+    local _version="${2}"
+    cd "${_dir:?}" && touch ./CD_VERSION &&
+      echo "${_version:?}" >./CD_VERSION && chmod 640 ./CD_VERSION
+    do_dir_list "${_dir}"
   }
 } # define_common_upload
 

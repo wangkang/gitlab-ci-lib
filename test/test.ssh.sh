@@ -1,13 +1,14 @@
 #!/bin/bash
 set -eo pipefail
+source "../.gitlab-ci.lib.sh"
 
 #==============================================================================
 export VAULT_URL_GITLAB="${VAULT_URL:?}/gitlab/dummy-service/customer"
-source "../.gitlab-ci.lib.sh"
 define_common_init
+#==============================================================================
 define_common_init_ssh
 init_ssh_do
-#==============================================================================
+do_ssh_add_user_upload
 do_ssh_add_user_jumper
 do_ssh_reset_service
 declare -rx OPTION_DEBUG='no'
@@ -59,3 +60,14 @@ echo '----------------------------------------'
 echo '----------------------------------------'
 
 do_ssh_export_clear
+
+do_ssh_export do_print_warn
+do_ssh_export do_dir_make
+do_ssh_export do_dir_clean
+
+do_here do_ssh_exec_upload <<\-----
+  do_dir_clean abc
+  do_dir_make  abc
+  pwd
+  echo "$(whoami)"
+-----
