@@ -24,9 +24,6 @@ do_print_hello_alice() {
   do_print_hello 'alice'
 }
 
-do_ssh_export do_print_info
-do_ssh_export do_print_hello
-
 _statement="
   $(declare -f do_print_hello_alice)
   do_print_hello_alice
@@ -35,6 +32,7 @@ _statement="
 echo '----------------------------------------'
 {
   _command="${_statement}"
+  printf -v _command '%s\n%s' "$(declare -f do_print_colorful)" "${_command}"
   printf -v _command '%s\n%s' "$(declare -f do_print_info)" "${_command}"
   printf -v _command '%s\n%s' "$(declare -f do_print_hello)" "${_command}"
   (echo "${_command}" | ssh -T "${JUMPER_USER_HOST}" -- /bin/bash -eo pipefail -s -) &
@@ -44,6 +42,7 @@ echo '----------------------------------------'
   wait
 }
 echo '----------------------------------------'
+do_ssh_export do_print_colorful do_print_info do_print_hello
 {
   (do_exec_on_jumper "${_statement}") &
   (do_exec_on_server "${_statement}") &
@@ -58,13 +57,9 @@ echo '----------------------------------------'
   wait
 }
 echo '----------------------------------------'
-
 do_ssh_export_clear
 
-do_ssh_export do_print_warn
-do_ssh_export do_dir_make
-do_ssh_export do_dir_clean
-
+do_ssh_export do_print_colorful do_print_warn do_dir_make do_dir_clean
 do_here do_ssh_exec_upload <<\-----
   do_dir_clean abc
   do_dir_make  abc

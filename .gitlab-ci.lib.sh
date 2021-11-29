@@ -161,11 +161,11 @@ define_util_ssh() {
     fi
     do_print_dash_pair 'SSH_USER_HOST' "${_user_host}"
     [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && do_print_dash_pair 'SSH_KNOWN_HOSTS' "${ARG_SSH_KNOWN_HOSTS:0:60}**"
-    [ -n "${ARG_SSH_PRIVATE_KEY}" ] && (
+    [ -n "${ARG_SSH_PRIVATE_KEY}" ] && {
       local _pri_line
       _pri_line=$(echo "${ARG_SSH_PRIVATE_KEY}" | tr -d '\n')
       do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60}**"
-    )
+    }
     [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && _ssh_add_known "${ARG_SSH_KNOWN_HOSTS}"
     [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
     local _uid='-1'
@@ -325,56 +325,69 @@ define_util_print() {
     local _value=${!_name3:-${!_name2:-${!_name1:-${!_name0}}}}
     printf '%s' "$(echo "${_value}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   }
+  do_print_trace() { do_print_colorful '0;34' "${@}"; }
+  do_print_info() { do_print_colorful '0;36' "${@}"; }
+  do_print_warn() { do_print_colorful '1;33' "${@}"; }
+  do_print_colorful() {
+    if [ ! ${#} -gt 1 ]; then return; fi
+    local _color="\033[${1}m"
+    local _clear='\033[0m'
+    local _head
+    _head="$(echo "${2}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    if [ ${#} -gt 2 ]; then
+      if [ -z "${_head}" ]; then
+        printf "${_color}%s${_clear}\n" "${*:3}"
+      else
+        printf "${_color}%s${_clear} %s\n" "${_head}" "${*:3}"
+      fi
+    else
+      printf "${_color}%s${_clear}\n" "${_head}"
+    fi
+  }
   do_print_debug() {
     local _enabled=${OPTION_DEBUG:='no'}
     if [ 'yes' != "${_enabled}" ]; then return 0; fi
     local _color='\033[0;35m'
     local _clear='\033[0m'
-    if [ $# -gt 0 ]; then
+    if [ ${#} -gt 0 ]; then
       local _n=$((${#FUNCNAME[@]} - 2))
-      printf "#==== ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN ' "${FUNCNAME[*]:1:${_n}}"
-      #printf "${_color}%s${_clear}\n" "${1}" | sed 's|^|#:|'
-      printf "${_color}%s${_clear}\n" "${1}" | awk '{printf "#%3d| %s\n", NR, $0}'
-      printf "#==== ${_color}%s-- %s${_clear}\n" 'DEBUG END --' "${FUNCNAME[*]:1:${_n}}"
-    else printf ''; fi
-  }
-  do_print_info() {
-    if [ $# -gt 1 ]; then
-      printf '\033[0;36m%s\033[0m %s\n' "$1" "$2"
-    elif [ $# -gt 0 ]; then
-      printf '\033[0;36m%s\033[0m\n' "$1"
-    else printf ''; fi
-  }
-  do_print_warn() {
-    if [ $# -gt 1 ]; then
-      printf '\033[1;33m%s\033[0m %s\n' "$1" "$2"
-    elif [ $# -gt 0 ]; then
-      printf '\033[1;33m%s\033[0m\n' "$1"
-    else printf ''; fi
+      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN --' "${FUNCNAME[*]:1:${_n}}"
+      printf "%s\n" "${1}" | awk '{printf "#%3d| \033[0;35m%s\033[0m\n", NR, $0}'
+      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG END ----' "${FUNCNAME[*]:1:${_n}}"
+    fi
   }
   do_print_dash_pair() {
     if [ -z "${SHORT_LINE}" ]; then
-      SHORT_LINE='------------------------------'
+      declare -x SHORT_LINE='------------------------------'
     fi
-    if [ $# -gt 1 ]; then
-      key=${1:?} && val=${2}
-      printf '\033[0;32m%s\033[0m \033[1;30m%s\033[0m [\033[0;32m%s\033[0m]\n' \
-        "${key}" "${SHORT_LINE:${#key}}" "${val}"
-    elif [ $# -gt 0 ]; then
-      printf '\033[1;30m%s\033[0m\n' "${SHORT_LINE}-- ${1}"
+    local _clear='\033[0m'
+    local _color='\033[0;32m'
+    local _dark='\033[1;30m'
+    if [ ${#} -gt 1 ]; then
+      key=${1} && val=${2}
+      printf "${_color}%s${_clear} ${_dark}%s${_clear} [${_color}%s${_clear}]\n" \
+        "${key:?}" "${SHORT_LINE:${#key}}" "${val}"
+    elif [ ${#} -gt 0 ]; then
+      printf "${_dark}%s${_clear}\n" "${SHORT_LINE}-- ${1}"
     else
-      printf '\033[1;30m%s\033[0m\n' "${SHORT_LINE}${SHORT_LINE}"
+      printf "${_dark}%s${_clear}\n" "${SHORT_LINE}${SHORT_LINE}"
     fi
   }
   do_print_section() {
     if [ -z "${LONG_LINE}" ]; then
-      LONG_LINE='==============================================================================================='
+      LONG_LINE='========================================================================================='
     fi
-    if [ $# -gt 0 ]; then
-      printf '\033[1;36m%s %s\033[0m %s\n' "${1}" "${LONG_LINE:${#1}}" "$(date +'%Y-%m-%d %T %Z')"
-    else
-      printf '\033[1;30m%s\033[0m\n' "${SHORT_LINE}--------------------"
+    local _clear='\033[0m'
+    local _color='\033[1;36m'
+    local _title
+    if [ ${#} -gt 0 ]; then
+      _title="$(echo "${*}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      if [ -n "${_title}" ]; then
+        printf "${_color}%s %s %s${_clear}\n" "${_title}" "${LONG_LINE:${#_title}}" "$(date +'%Y-%m-%d %T %Z')"
+        return
+      fi
     fi
+    printf "${_color}%s %s${_clear}\n" "=${LONG_LINE}" "$(date +'%Y-%m-%d %T %Z')"
   }
 }
 
@@ -485,7 +498,6 @@ define_common_init() {
 define_common_init_ssh() {
   define_util_ssh
   init_ssh_do() {
-    do_print_info "# ${FUNCNAME[*]}"
     declare -xa ADDED_USER_HOST=()
     _ssh_agent_init
     do_ssh_add_user_default
@@ -818,7 +830,7 @@ define_common_deploy() {
     $_d_ssh $'
       ${DECLARE_DO_TRACE}
       do_trace \'- replace ${DEPLOY_ENV_SRC}\'
-      [ -f \'${DEPLOY_ENV_SRC}\' ] && (
+      [ -f \'${DEPLOY_ENV_SRC}\' ] && {
         _eth0_ipv4=\$(/usr/sbin/ifconfig eth0 | grep \'inet \'| awk \'{print \$2}\')
         sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR}|g\'   ${DEPLOY_ENV_SRC}
         sed -i -e \"s|#VAULT_URL|${SERVICE_VAULT_URL}|g\"             ${DEPLOY_ENV_SRC}
@@ -826,12 +838,12 @@ define_common_deploy() {
         sed -i -e \"s|#DEPLOY_CUSTOMER|${CUSTOMER:?}|g\"              ${DEPLOY_ENV_SRC}
         sed -i -e \'s|#DEPLOY_ENV_NAME|${ENV_NAME:?}|g\'              ${DEPLOY_ENV_SRC}
         sed -i -e \"s|#DEPLOY_HOST_IP|\$_eth0_ipv4|g\"                ${DEPLOY_ENV_SRC}
-      )
+      }
       do_trace \'- replace ${DEPLOY_YML_SRC}\'
-      [ -f \'${DEPLOY_YML_SRC}\' ] && (
+      [ -f \'${DEPLOY_YML_SRC}\' ] && {
         sed -i -e \'s|#CONTAINER_VERSION_MOUNT|${CONTAINER_VERSION_MOUNT:?}|g\'       ${DEPLOY_YML_SRC}
         sed -i -e \'s|#CONTAINER_ENTRYPOINT_MOUNT|${CONTAINER_ENTRYPOINT_MOUNT:?}|g\' ${DEPLOY_YML_SRC}
-      )
+      }
       do_trace \'# find $_remote_dir\'
       find \'$_remote_dir\' -type f -exec ls -lhA {} +
     ' "
@@ -935,7 +947,7 @@ define_common_deploy() {
       do_trace \'# find $_remote_dir\'
       find    \'$_remote_dir\' -type f -exec ls -lhA {} +
       ln -sfn \'$_remote_dir\' \'$_remote_dir/CD_LINK\'
-      mv -Tf  \'$_remote_dir/CD_LINK\' ${SERVICE_DIR:?} && (
+      mv -Tf  \'$_remote_dir/CD_LINK\' ${SERVICE_DIR:?} && {
         do_check_container
         if [ \'yes\' != \'${ENV_CHANGED}\' ] && [ \'yes\' = \"\$_container_created\" ]; then
           do_trace \'# $_container_cmd start\'
@@ -949,7 +961,7 @@ define_common_deploy() {
           $_compose_cmd up -d
           do_trace \"# $_compose_cmd up -d exited with status \$?\"
         fi
-      )
+      }
     ' "
     _deploy_write_log
   }
