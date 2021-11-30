@@ -64,6 +64,26 @@ define_util_core() {
     }
     return "${_status}"
   }
+  do_write_file() {
+    local _path="${1}"
+    local _file_content="${2}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 660
+    ls -lh "${_path}"
+    printf '%s\n' "${_file_content:?}" >"${_path}"
+    ls -lh "${_path}"
+  }
+  do_write_log_file() {
+    local _path="${1}"
+    local _line="${*:2}"
+    _line="[$(date +'%Y-%m-%d %T %Z')] ${_line:?}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 640
+    echo "${_line}" >>"${_path}"
+    tail -3 "${_path}"
+    local _lines
+    _lines=$(wc -l <"${_path}" | xargs)
+    [ "${_lines}" -gt 220 ] && tail -200 "${_path}" >"${_path}.tmp" &&
+      mv -f "${_path}.tmp" "${_path}"
+  }
 }
 
 declare -ax SSH_EXPORT_FUN=('do_print_debug')
@@ -599,11 +619,6 @@ define_common_upload() {
 #===============================================================================
 
 define_common_service() {
-  do_on_jumper_host() {
-    if [ -n "${1}" ]; then do_on_jumper_host_1="${1}"; fi
-    # shellcheck disable=SC2029
-    ssh "${JUMPER_USER_HOST:?}" "${do_on_jumper_host_1:?}"
-  }
   do_on_deploy_host() {
     if [ -n "${1}" ]; then do_on_deploy_host_1="${1}"; fi
     # shellcheck disable=SC2029
@@ -681,9 +696,9 @@ define_common_service() {
   }
   _service_reset_status() {
     do_print_dash_pair 'Runtime Variables'
-    SERVICE_HOST_UID=$(do_on_deploy_host 'id')
+    SERVICE_HOST_UID=$(do_ssh_server_exec 'id')
     do_print_dash_pair 'SERVICE_HOST_UID' "${SERVICE_HOST_UID}"
-    IS_PODMAN_HOST=$(do_on_deploy_host 'if ! command -v podman-compose &>/dev/null; then echo no; else echo yes; fi')
+    IS_PODMAN_HOST=$(do_ssh_server_exec 'if ! command -v podman-compose &>/dev/null; then echo no; else echo yes; fi')
     do_print_dash_pair 'IS_PODMAN_HOST' "${IS_PODMAN_HOST}"
     if [ 'yes' = "${IS_PODMAN_HOST}" ]; then
       _container_cmd='sudo podman'
@@ -691,14 +706,14 @@ define_common_service() {
   }
   _service_check_version() {
     _cd_version_file=${SERVICE_UPLOAD_DIR}/CD_VERSION
-    VERSION_DEPLOYING=$(do_on_jumper_host "cat $_cd_version_file 2>/dev/null || echo 0")
+    VERSION_DEPLOYING=$(do_ssh_jumper_exec "cat ${_cd_version_file:?} || echo 0")
     if [ 'yes' = "${OPTION_FORCE_DEPLOY}" ]; then
       VERSION_BUILDING="${VERSION_DEPLOYING:=1}"
     fi
     do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING:?}"
     do_print_dash_pair 'VERSION_DEPLOYING' "${VERSION_DEPLOYING}"
-    VERSION_RUNNING=$(do_on_deploy_host "$_container_cmd exec ${SERVICE_NAME} \
-    cat ${CONTAINER_WORK_DIR:?}/CD_VERSION 2>/dev/null || echo 0")
+    VERSION_RUNNING=$(do_ssh_server_exec "\
+    $_container_cmd exec ${SERVICE_NAME} cat ${CONTAINER_WORK_DIR:?}/CD_VERSION || echo 0")
     do_print_dash_pair 'VERSION_RUNNING' "${VERSION_RUNNING}"
     if [ '0' = "${VERSION_DEPLOYING}" ]; then
       do_print_warn "Check this file: ${JUMPER_USER_HOST}:$_cd_version_file"
@@ -789,12 +804,13 @@ define_common_deploy() {
       do_print_warn '- fetched nothing'
       return 0
     fi
-    printf -v _file_content '"%q"' "${_file_content}"
-    do_on_jumper_host "
-    if [ ! -f ${_remote_path} ]; then touch ${_remote_path} && chmod 660 ${_remote_path}; fi
-    printf '%s\n' \"${_file_content}\" >'${_remote_path}'
-    ls -lh '${_remote_dir}'
-    "
+    do_deploy_write_file "${_remote_dir}" "${_file_content}"
+  }
+  do_deploy_write_file() {
+    _file_content="${2}"
+    printf -v _file_content '"%q"' "${_file_content:?}"
+    do_ssh_jumper_invoke do_write_file "${1}" "${_file_content}"
+    do_ssh_export_clear
   }
   do_deploy_patch() {
     local _dir_name=${1:?}
@@ -806,7 +822,7 @@ define_common_deploy() {
     fi
     local _scp="scp -rpC -o StrictHostKeyChecking=no"
     local _remote_dir="${UPLOAD_LOCATION}/${_dir_name}"
-    do_on_jumper_host "mkdir -p ${_remote_dir}"
+    do_ssh_server_exec "mkdir -p ${_remote_dir}"
     do_print_info 'UPLOAD PATCH FROM' "${_local_dir}/*"
     do_print_info 'UPLOAD PATCH TO' "${_remote_dir}/"
     if ! $_scp "${_local_dir}/"* "${_remote_dir}/"; then
@@ -988,25 +1004,11 @@ define_common_deploy() {
         fi
       }
     ' "
-    _deploy_write_log
-  }
-  _deploy_write_log() {
     do_print_info 'WRITE DEPLOY LOG'
-    local _now
-    _now=$(date +'%Y-%m-%d %T %Z')
-    local _log_line="[$_now] [${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_ID} ${CI_JOB_ID}]"
-    local _log_file="${SERVICE_DIR:?}/CD_VERSION_LOG"
-    do_on_deploy_host "
-      if [ ! -f $_log_file ]; then
-        touch $_log_file && chmod 640 $_log_file
-      fi
-      echo $_log_line >> $_log_file
-      tail -3 $_log_file
-      _lines=\$(cat $_log_file | wc -l)
-      if [ \$_lines -gt 200 ]; then
-        echo \"\$(tail -200 $_log_file)\" > $_log_file
-      fi
-    " && do_print_info 'WRITE DEPLOY LOG OK'
+    local _line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_ID} ${CI_JOB_ID}]"
+    local _path="${SERVICE_DIR:?}/CD_VERSION_LOG"
+    do_ssh_server_invoke do_write_log_file "${_path}" "${_line}" && do_print_info 'WRITE DEPLOY LOG OK'
+    do_ssh_export_clear
   }
 } # define_common_deploy
 
