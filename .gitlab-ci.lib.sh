@@ -569,7 +569,7 @@ define_common_upload() {
     do_ssh_export do_print_warn do_dir_make do_dir_clean
     do_invoke_on_upload upload_clean_dir_do "${_dir}"
     do_ssh_export_clear
-    if ! $_scp "${RUNNER_LOCAL_DIR}/" "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
+    if ! $_scp "${RUNNER_LOCAL_DIR}/"* "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
       do_print_warn 'UPLOAD FAILED'
       exit 120
     else
@@ -668,8 +668,9 @@ define_common_service() {
   _service_vault_reset() {
     SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN_RUNTIME')"
     [ -z "${SERVICE_VAULT_TOKEN}" ] && SERVICE_VAULT_TOKEN="${VAULT_TOKEN}"
-    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL_RUNTIME')/runtime"
+    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL_RUNTIME')"
     [ -z "${SERVICE_VAULT_URL}" ] && SERVICE_VAULT_URL="${VAULT_URL}"
+    SERVICE_VAULT_URL="${SERVICE_VAULT_URL}/runtime"
     do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
   }
   _service_vault_variable() {
