@@ -624,22 +624,12 @@ define_common_service() {
     if [ -n "$_vr" ] && [ "$_vr" != '0' ] && [ "$_vr" != "${VERSION_RUNNING_NOW}" ]; then
       do_print_dash_pair 'VERSION_STOPPED' "${VERSION_RUNNING}"
     fi
-    do_on_deploy_host "
-    do_trace() {
-      if   [ \$# -gt 1 ]; then printf \"\033[0;34m%s\033[0m %s\n\" \"\$1\" \"\$2\";
-      elif [ \$# -gt 0 ]; then printf \"\033[0;34m%s\033[0m\n\"    \"\$1\";
-      else printf \"\"; fi
-    }
-    do_trace \'*** Currently deployed version:\'
-    cat \'${SERVICE_DIR:?}/CD_VERSION\'
-    do_trace \'*** Recent deployment log\'
-    tail -10 \'${SERVICE_DIR}/CD_VERSION_LOG\'
-    if [ 1 = \$($_container_cmd ps -a | grep \'${SERVICE_NAME}\' | wc -l || echo 0) ]; then
-      do_trace \'*** Container State:\'
-      $_container_cmd inspect --type=container --format=\'{{json .State}}\' \'${SERVICE_NAME}\'
-    else
-      do_trace \'### Container is not created:\' \"${SERVICE_NAME}\"
-    fi " && do_print_info "INSPECT OK [${SERVICE_LOCATION}]"
+    do_ssh_export SERVICE_NAME
+    do_ssh_export SERVICE_DIR
+    do_ssh_export do_print_trace
+    do_ssh_server_invoke _service_info_print "${_container_cmd:?}" &&
+      do_print_info "INSPECT OK [${SERVICE_LOCATION}]"
+    do_ssh_export_clear
   }
   service_common_do() {
     do_ssh_reset_service
@@ -658,6 +648,19 @@ define_common_service() {
     [ -z "${CONTAINER_WORK_DIR}" ] && CONTAINER_WORK_DIR="/home/${SERVICE_USER}"
     _service_reset_status
     _service_check_version
+  }
+  _service_info_print() {
+    local _container_cmd="${1:?}"
+    do_print_trace '*** Currently deployed version:'
+    cat "${SERVICE_DIR:?}/CD_VERSION"
+    do_print_trace '*** Recent deployment log'
+    tail -10 "${SERVICE_DIR}/CD_VERSION_LOG"
+    if [ 1 = "$($_container_cmd ps -a | grep -c "${SERVICE_NAME:?}" || echo 0)" ]; then
+      do_print_trace '*** Container State:'
+      $_container_cmd inspect --type=container --format='{{json .State}}' "${SERVICE_NAME}"
+    else
+      do_print_trace '### Container is not created:' "${SERVICE_NAME}"
+    fi
   }
   _service_vault_reset() {
     SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN_RUNTIME')"
