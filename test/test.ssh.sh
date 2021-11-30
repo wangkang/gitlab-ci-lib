@@ -44,15 +44,15 @@ echo '----------------------------------------'
 echo '----------------------------------------'
 do_ssh_export do_print_colorful do_print_info do_print_hello
 {
-  (do_exec_on_jumper "${_statement}") &
-  (do_exec_on_server "${_statement}") &
+  (do_ssh_jumper_exec "${_statement}") &
+  (do_ssh_server_exec "${_statement}") &
   (eval "${_statement}")
   wait
 }
 echo '----------------------------------------'
 {
-  (do_invoke_on_jumper do_print_hello_alice "$(whoami)" 'bob') &
-  (do_invoke_on_server do_print_hello_alice "$(whoami)" 'carl') &
+  (do_ssh_jumper_invoke do_print_hello_alice "$(whoami)" 'bob') &
+  (do_ssh_server_invoke do_print_hello_alice "$(whoami)" 'carl') &
   (eval do_print_hello_alice "$(whoami)" 'deny')
   wait
 }
@@ -60,7 +60,7 @@ echo '----------------------------------------'
 do_ssh_export_clear
 
 do_ssh_export do_print_colorful do_print_warn do_dir_make do_dir_clean
-do_here do_ssh_exec_upload <<\-----
+do_here do_ssh_upload_exec <<\-----
   do_dir_clean abc
   do_dir_make  abc
   pwd

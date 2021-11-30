@@ -23,8 +23,8 @@ test_invoke() {
 test_func() {
   local _func_name="${1:?}"
   local _url="${VAULT_URL_GITLAB}-secret"
-  (test_invoke do_invoke_on_jumper "${_func_name}" "${_url}" "${VAULT_TOKEN:?}" "${*:2}") &
-  (test_invoke do_invoke_on_server "${_func_name}" "${_url}" "${VAULT_TOKEN:?}" "${*:2}") &
+  (test_invoke do_ssh_jumper_invoke "${_func_name}" "${_url}" "${VAULT_TOKEN:?}" "${*:2}") &
+  (test_invoke do_ssh_server_invoke "${_func_name}" "${_url}" "${VAULT_TOKEN:?}" "${*:2}") &
   (test_invoke "${_func_name}" "${_url}" "${VAULT_TOKEN:?}" "${*:2}")
   wait
 }

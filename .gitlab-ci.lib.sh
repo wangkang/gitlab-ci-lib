@@ -90,23 +90,11 @@ define_util_ssh() {
     SSH_EXPORT_FUN=('do_print_debug')
     SSH_EXPORT_VAR=('OPTION_DEBUG' 'SSH_EXPORT_VAR' 'SSH_EXPORT_FUN')
   }
-  do_invoke_on_upload() { do_ssh_invoke "${UPLOAD_USER_HOST:?}" "${@}"; }
-  do_invoke_on_jumper() { do_ssh_invoke "${JUMPER_USER_HOST:?}" "${@}"; }
-  do_invoke_on_server() {
-    local _func_name="${1}"
-    do_ssh_export "${_func_name:?}"
-    do_exec_on_server "${@}"
-  }
-  do_ssh_exec_upload() { do_ssh_exec "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
-  do_exec_on_jumper() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
-  do_exec_on_server() {
-    do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
-  }
   do_ssh_invoke() {
-    local _user_host="${1}"
+    local _ssh="${1}"
     local _func_name="${2}"
     do_ssh_export "${_func_name:?}"
-    do_ssh_exec "$(do_ssh_exec_chain "${_user_host:?}")" "${@:2}"
+    do_ssh_exec "${_ssh:?}" "${@:2}"
   }
   do_ssh_exec_chain() {
     local _ssh='ssh -o ConnectTimeout=3 -T'
@@ -167,23 +155,23 @@ define_util_ssh() {
   do_ssh_add_user() {
     do_print_info "# ${FUNCNAME[*]}"
     local _user_host="${ARG_SSH_USER}@${ARG_SSH_HOST}"
-    do_print_info "SSH ADD USER [${_user_host}]"
     if [ -z "${ARG_SSH_USER}" ]; then
-      do_print_info 'SSH ADD USER DONE (abort: ARG_SSH_USER is absent)'
+      do_print_info 'SSH ADD USER ABORT (ARG_SSH_USER is absent)'
       return
     fi
     if [ -z "${ARG_SSH_HOST}" ]; then
-      do_print_info 'SSH ADD USER DONE (abort: ARG_SSH_HOST is absent)'
+      do_print_info 'SSH ADD USER ABORT (ARG_SSH_HOST is absent)'
       return
     fi
     if [ "$_user_host" = "${SSH_USER_HOST}" ]; then
-      do_print_info 'SSH ADD USER OK (same as default user)'
+      do_print_info "SSH ADD USER OK (${_user_host} is default user)"
       return
     fi
     if [[ "${ADDED_USER_HOST[*]}" =~ ${_user_host} ]]; then
-      do_print_info 'SSH ADD USER OK (already been added)'
+      do_print_info "SSH ADD USER OK (${_user_host} has already been added)"
       return
     fi
+    do_print_info "SSH ADD USER [${_user_host}]"
     do_print_dash_pair 'SSH_USER_HOST' "${_user_host}"
     [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && do_print_dash_pair 'SSH_KNOWN_HOSTS' "${ARG_SSH_KNOWN_HOSTS:0:60}**"
     [ -n "${ARG_SSH_PRIVATE_KEY}" ] && {
@@ -521,14 +509,20 @@ define_common_init() {
 #===============================================================================
 
 define_common_init_ssh() {
+  declare -xa ADDED_USER_HOST=()
   define_util_ssh
+  do_ssh_upload_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
+  do_ssh_jumper_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
+  do_ssh_server_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"; }
+  do_ssh_upload_exec() { do_ssh_exec "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
+  do_ssh_jumper_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
+  do_ssh_server_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"; }
   init_ssh_do() {
-    declare -xa ADDED_USER_HOST=()
     _ssh_agent_init
     do_ssh_add_user_default
     init_inject_env_bash_do
   }
-} # define_common_init_ssh
+}
 
 #===============================================================================
 
@@ -567,7 +561,7 @@ define_common_upload() {
     local _dir="${UPLOAD_REMOTE_DIR:?}"
     local _scp="scp -rpC -o StrictHostKeyChecking=no"
     do_ssh_export do_print_warn do_dir_make do_dir_clean
-    do_invoke_on_upload upload_clean_dir_do "${_dir}"
+    do_ssh_upload_invoke upload_clean_dir_do "${_dir}"
     do_ssh_export_clear
     if ! $_scp "${RUNNER_LOCAL_DIR}/"* "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
       do_print_warn 'UPLOAD FAILED'
@@ -575,7 +569,7 @@ define_common_upload() {
     else
       do_print_info 'UPLOAD OK' "$(date +'%T')"
       do_ssh_export do_dir_list
-      do_invoke_on_upload upload_cd_version_file_do "${_dir}" "${VERSION_BUILDING:?}"
+      do_ssh_upload_invoke upload_cd_version_file_do "${_dir}" "${VERSION_BUILDING:?}"
       do_ssh_export_clear
     fi
     do_upload_cleanup_local
@@ -769,7 +763,7 @@ define_common_deploy() {
     local _line_count
     _line_count=$(echo "${_code}" | wc -l | xargs)
     do_print_info "- fetch from vault: ${_line_count} lines"
-    do_exec_on_server "printf '%s\n' '${_code}' >>'${DEPLOY_ENV_SRC:?}'"
+    do_ssh_server_exec "printf '%s\n' '${_code}' >>'${DEPLOY_ENV_SRC:?}'"
   }
   do_deploy_vault_patch() {
     do_print_info "# ${FUNCNAME[0]}"

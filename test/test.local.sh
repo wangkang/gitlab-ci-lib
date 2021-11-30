@@ -25,13 +25,24 @@ test_diff() {
   local _status="${?}"
   set -e
   case ${_status} in
-  0) do_print_trace "- diff return ${_status}(same)" ;;
-  1) do_print_trace "- diff return ${_status}(different)" ;;
-  2) do_print_trace "- diff return ${_status}(error)" ;;
-  3) do_print_trace "- diff return ${_status}(cancelled)" ;;
-  *) do_print_trace "- diff return ${_status}(unknown status)" ;;
+  0) do_print_trace "- diff return ${_status} (same)" ;;
+  1) do_print_trace "- diff return ${_status} (different)" ;;
+  2) do_print_trace "- diff return ${_status} (error)" ;;
+  3) do_print_trace "- diff return ${_status} (cancelled)" ;;
+  *) do_print_trace "- diff return ${_status} (unknown status)" ;;
   esac
 }
 
+shopt -s extglob
+test_globbing() {
+  printf '%s\n' !(abc)
+  echo !(abc) | do_here do_print_info
+}
+shopt -u extglob
+
 test_print
 test_diff
+
+shopt -s extglob
+test_globbing
+shopt -u extglob
