@@ -183,8 +183,10 @@ define_util_ssh() {
     [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
     local _uid='-1'
     local _ssh="ssh -o ConnectTimeout=3 -T ${SSH_DEBUG_OPTIONS}"
+    set +e
     _uid=$($_ssh "${_user_host}" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
     local _status="${?}"
+    set -e
     if [ 0 = ${_status} ]; then
       if [[ ! "${ADDED_USER_HOST[*]}" =~ ${_user_host} ]]; then
         ADDED_USER_HOST+=("${_user_host}")
@@ -218,8 +220,10 @@ define_util_ssh() {
     fi
   }
   _ssh_add_key() {
+    set +e
     echo "${1:?}" | tr -d '\r' | ssh-add - >/dev/null
-    #do_print_info "# ssh-add $?"
+    do_print_info "# ssh-add exit with status ${?}"
+    set -e
   }
   _ssh_add_known() {
     echo "${1:?}" >>~/'.ssh/known_hosts'
@@ -233,8 +237,10 @@ define_util_ssh() {
       do_print_warn 'Error: ssh-add is not installed'
       exit 120
     fi
+    set +e
     eval "$(ssh-agent -s)" &>/dev/null
     do_print_info "- ssh-agent status code ${?}"
+    set -e
     mkdir -p ~/.ssh
     touch ~/.ssh/known_hosts
     chmod 644 ~/'.ssh/known_hosts'
@@ -303,22 +309,26 @@ define_util_vault() {
   }
   do_vault_with_ssh_or_local() {
     local _func_name="${1}_local"
+    set +e
     if ! do_vault_check; then
       do_vault_with_ssh "${_func_name:?}" "${*:2}"
       do_ssh_export_clear
     else
       eval "${_func_name:?}" "${*:2}"
     fi
+    set -e
   }
   do_vault_fetch_local() {
     local _url="${1}"
     local _token="${2}"
     local _jq_cmd="${3}"
     local _value
+    set +e
     printf '%s\n' "## fetch from vault: ${_url:?} .data.${_key:-"*"} -- $(whoami)@$(hostname)"
     if ! do_vault_check; then return; fi
     _value=$(jq -r "${_jq_cmd:?}" <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")" 2>/dev/null)
     local _status="${?}"
+    set -e
     if [ '0' = "${_status}" ] && [ -n "${_value}" ] && [ 'null' != "${_value}" ]; then
       printf '%s\n' "${_value}"
     fi
