@@ -252,9 +252,7 @@ define_util_vault() {
   do_vault_bash_inject() {
     local _url="${1}"
     local _func="${2}"
-    if [ -z "${_url}" ]; then
-      return
-    fi
+    if [ -z "${_url}" ]; then return; fi
     do_print_info "# ${2} ${FUNCNAME[*]}"
     if [ "$(type -t "${_func:?}")" != function ]; then
       do_print_warn "- Function '${_func}' is undefined"
@@ -270,19 +268,9 @@ define_util_vault() {
     eval "${_command}"
   }
   do_vault_check() {
-    if [ -z "$(command -v jq)" ]; then
-      return 2
-    fi
-    if [ -z "$(command -v curl)" ]; then
-      return 1
-    fi
+    if [ -z "$(command -v jq)" ]; then return 2; fi
+    if [ -z "$(command -v curl)" ]; then return 1; fi
     return 0
-  }
-  do_vault_with_ssh() {
-    local _local_func_name="${1}"
-    do_ssh_export do_vault_check do_vault_fetch_local
-    local _user_host=${UPLOAD_USER_HOST:-${JUMPER_USER_HOST:-${SSH_USER_HOST}}}
-    do_ssh_invoke "${_user_host:?}" "${_local_func_name:?}" "${*:2}" 2>/dev/null
   }
   do_vault_fetch_env_file() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
   do_vault_fetch_env_file_local() {
@@ -307,16 +295,20 @@ define_util_vault() {
     local _jq_cmd=".data.${_key}"
     do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
   }
+  do_vault_with_ssh() {
+    local _local_func_name="${1}"
+    do_ssh_export do_vault_check do_vault_fetch_local
+    local _user_host=${UPLOAD_USER_HOST:-${JUMPER_USER_HOST:-${SSH_USER_HOST}}}
+    do_ssh_invoke "$(do_ssh_exec_chain "${_user_host:?}")" "${_local_func_name:?}" "${*:2}" 2>/dev/null
+  }
   do_vault_with_ssh_or_local() {
     local _func_name="${1}_local"
-    set +e
-    if ! do_vault_check; then
+    if do_vault_check; then
+      eval "${_func_name:?}" "${*:2}"
+    else
       do_vault_with_ssh "${_func_name:?}" "${*:2}"
       do_ssh_export_clear
-    else
-      eval "${_func_name:?}" "${*:2}"
     fi
-    set -e
   }
   do_vault_fetch_local() {
     local _url="${1}"
@@ -634,10 +626,9 @@ define_common_service() {
     if [ -n "$_vr" ] && [ "$_vr" != '0' ] && [ "$_vr" != "${VERSION_RUNNING_NOW}" ]; then
       do_print_dash_pair 'VERSION_STOPPED' "${VERSION_RUNNING}"
     fi
-    do_ssh_export SERVICE_NAME
-    do_ssh_export SERVICE_DIR
-    do_ssh_export do_print_trace
-    do_ssh_server_invoke _service_info_print "${_container_cmd:?}" &&
+    do_ssh_export SERVICE_NAME SERVICE_DIR
+    do_ssh_export do_print_colorful do_print_trace
+    do_ssh_server_invoke service_info_print_do "${_container_cmd:?}" &&
       do_print_info "INSPECT OK [${SERVICE_LOCATION}]"
     do_ssh_export_clear
   }
@@ -659,7 +650,8 @@ define_common_service() {
     _service_reset_status
     _service_check_version
   }
-  _service_info_print() {
+  service_info_print_do() {
+    do_print_trace "*** $(whoami)@$(hostname) [${FUNCNAME[*]}]"
     local _container_cmd="${1:?}"
     do_print_trace '*** Currently deployed version:'
     cat "${SERVICE_DIR:?}/CD_VERSION"
