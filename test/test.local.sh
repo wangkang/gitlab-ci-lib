@@ -25,11 +25,10 @@ test_diff() {
   local _status="${?}"
   set -e
   case ${_status} in
-  0) do_print_trace "- diff return ${_status} (same)" ;;
-  1) do_print_trace "- diff return ${_status} (different)" ;;
-  2) do_print_trace "- diff return ${_status} (error)" ;;
-  3) do_print_trace "- diff return ${_status} (cancelled)" ;;
-  *) do_print_trace "- diff return ${_status} (unknown status)" ;;
+  0) do_print_trace "- do_diff returned ${_status} (same)" ;;
+  1) do_print_trace "- do_diff returned ${_status} (different)" ;;
+  2) do_print_trace "- do_diff returned ${_status} (error)" ;;
+  *) do_print_trace "- do_diff returned ${_status} (unknown status)" ;;
   esac
 }
 

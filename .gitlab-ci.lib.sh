@@ -40,28 +40,18 @@ define_util_core() {
     fi
   }
   do_diff() {
-    printf "\033[0;34m%s\033[0m\n" "# diff '${1:?}' '${2:?}'"
-    local _result
-    [ ! -f "${1}" ] && touch "${1}"
-    [ ! -f "${2}" ] && {
-      printf "\033[1;33m%s\033[0m\n" "- diff cancelled: ${2} is not a file"
-      set +e
-      return 3
-    }
+    printf "\033[0;34m%s\033[0m\n" "# ${FUNCNAME[0]} '${1:?}' '${2:?}'"
+    [ ! -f "${1}" ] && touch "${1}" && chmod 600 "${1}" && ls -lh "${1}"
     local _status
-    set +eo pipefail
-    diff --unchanged-line-format='' --old-line-format="- |%2dn| %L" \
+    set +e +o pipefail
+    diff --unchanged-line-format='' \
+      --old-line-format="- |%2dn| %L" \
       --new-line-format="+ |%2dn| %L" "${1}" "${2}" |
       awk 'BEGIN{FIELDWIDTHS="1"} { if ($1 == "+") {
       printf "\033[0;32m%s\033[0m\n", $0 } else {
       printf "\033[0;31m%s\033[0m\n", $0 } }'
     _status=${PIPESTATUS[0]}
     set -o pipefail
-    [ 1 = "${_status}" ] && [ -n "${_result}" ] && {
-      echo "${_result}" | awk 'BEGIN{FIELDWIDTHS="1"} { if ($1 == "+") {
-      printf "\033[0;32m%s\033[0m\n", $0 } else {
-      printf "\033[0;31m%s\033[0m\n", $0 } }'
-    }
     return "${_status}"
   }
   do_write_file() {
