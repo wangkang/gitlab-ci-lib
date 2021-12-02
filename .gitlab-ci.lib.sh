@@ -5,14 +5,24 @@ set -eo pipefail
 #===============================================================================
 
 define_util_core() {
+  do_nothing() { :; }
+  do_stack_trace() {
+    printf '%s --> %s' "$(whoami)@$(hostname)" "$(echo -n "${FUNCNAME[*]:1} " | tac -s ' ')"
+  }
   do_here() {
     local _func_name="${1}"
     local _input
     _input="$(timeout 2s cat /dev/stdin || true)"
     if [ -n "${_input}" ]; then
-      eval "${_func_name:?}" "'${_input}'"
+      eval "${_func_name:?}" "'${*:2}'" "'${_input}'"
+    else echo "Warning: empty stdin, ${_func_name}() was cancelled" >&2; fi
+  }
+  do_func_invoke() {
+    local _func_name="${1}"
+    if [ "$(type -t "${_func_name:?}")" != function ]; then
+      do_print_trace "# $_func_name is an absent function"
     else
-      echo "Warning: empty stdin, ${_func_name}() was cancelled" >&2
+      eval "${@}"
     fi
   }
   do_dir_list() {
@@ -22,10 +32,11 @@ define_util_core() {
   }
   do_dir_make() {
     local _dir="${1}"
+    [ -d "${_dir:?}" ] && return
+    local _mode="${2:-700}"
     local _hint
-    [ -d "${_dir:?}" ] && { return; }
-    if ! _hint=$(mkdir -p "${_dir}" 2>&1); then
-      do_print_warn "[$(whoami)@$(hostname) $(pwd)]$ mkdir -p ${_dir}"
+    if ! _hint=$(mkdir -p "${_dir}" && chmod "${_mode}" "${_dir}" 2>&1); then
+      do_print_warn "$(do_stack_trace) $ mkdir -p ${_dir}"
       do_print_warn "${_hint}"
     fi
   }
@@ -34,7 +45,7 @@ define_util_core() {
     local _hint
     [ ! -d "${_dir:?}" ] && { return; }
     if ! _hint=$(rm -rf "${_dir:?}/"* 2>&1); then
-      do_print_warn "[$(whoami)@$(hostname) $(pwd)]$ rm -rf \"${_dir}/\"*"
+      do_print_warn "$(do_stack_trace) $ rm -rf \"${_dir}/\"*"
       do_print_warn "${_hint}"
       do_print_warn "$(find "${_dir}" -type f -exec ls -lhA {} +)"
     fi
@@ -76,9 +87,15 @@ define_util_core() {
   }
 }
 
-declare -ax SSH_EXPORT_FUN=('do_print_debug')
-declare -ax SSH_EXPORT_VAR=('OPTION_DEBUG' 'SSH_EXPORT_VAR' 'SSH_EXPORT_FUN')
+declare -ax SSH_EXPORT_FUN=()
+declare -ax SSH_EXPORT_VAR=()
+
 define_util_ssh() {
+  do_ssh_export_clear() {
+    SSH_EXPORT_FUN=(do_stack_trace do_print_debug)
+    SSH_EXPORT_VAR=(OPTION_DEBUG SSH_EXPORT_VAR SSH_EXPORT_FUN)
+  }
+  do_ssh_export_clear
   do_ssh_export() {
     for i in "${@}"; do
       local _name="${i}"
@@ -87,7 +104,7 @@ define_util_ssh() {
         SSH_EXPORT_FUN+=("${_name}")
       else
         if [ -z "${!_name}" ]; then
-          echo "## $(whoami)@$(hostname): not a function/variable name '${_name}'" >&2
+          echo "## $(do_stack_trace) : not a function/variable name '${_name}'" >&2
           continue
         else
           if [[ "${SSH_EXPORT_VAR[*]}" =~ ${_name} ]]; then return; fi
@@ -95,10 +112,6 @@ define_util_ssh() {
         fi
       fi
     done
-  }
-  do_ssh_export_clear() {
-    SSH_EXPORT_FUN=('do_print_debug')
-    SSH_EXPORT_VAR=('OPTION_DEBUG' 'SSH_EXPORT_VAR' 'SSH_EXPORT_FUN')
   }
   do_ssh_invoke() {
     local _ssh="${1}"
@@ -148,7 +161,8 @@ define_util_ssh() {
     ARG_SSH_HOST="${UPLOAD_SSH_HOST:=${JUMPER_SSH_HOST:-${SSH_HOST:?}}}"
     ARG_SSH_KNOWN_HOSTS="${UPLOAD_SSH_KNOWN_HOSTS:=${JUMPER_SSH_KNOWN_HOSTS:-${SSH_KNOWN_HOSTS}}}"
     do_ssh_add_user
-    UPLOAD_USER_HOST="${UPLOAD_SSH_USER}@${UPLOAD_SSH_HOST}"
+    UPLOAD_USER="${UPLOAD_SSH_USER}"
+    UPLOAD_USER_HOST="${UPLOAD_USER}@${UPLOAD_SSH_HOST}"
   }
   do_ssh_add_user_jumper() {
     eval "$(_ssh_user_declare)"
@@ -159,8 +173,8 @@ define_util_ssh() {
     ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
     ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
     do_ssh_add_user
+    UPLOAD_USER="${UPLOAD_SSH_USER:-${ARG_SSH_USER}}"
     JUMPER_USER_HOST="${DEPLOY_SSH_USER}@${JUMPER_SSH_HOST}"
-    UPLOAD_SSH_USER="${UPLOAD_SSH_USER:=${JUMPER_SSH_USER:-${SSH_USER:?}}}"
   }
   do_ssh_add_user() {
     do_print_info "# ${FUNCNAME[*]}"
@@ -210,6 +224,23 @@ define_util_ssh() {
     SERVICE_HOST="$(_service_ssh_variable 'SERVICE_SSH_HOST')"
     do_print_dash_pair 'SERVICE_HOST' "${SERVICE_HOST}"
     SERVICE_USER_HOST="${SERVICE_USER:?}@${SERVICE_HOST:?}"
+    [ -z "${CONTAINER_WORK_DIR}" ] && CONTAINER_WORK_DIR="/home/${SERVICE_USER}"
+    _service_vault_reset
+  }
+  _service_vault_reset() {
+    SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN_RUNTIME')"
+    [ -z "${SERVICE_VAULT_TOKEN}" ] && SERVICE_VAULT_TOKEN="${VAULT_TOKEN}"
+    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL_RUNTIME')"
+    [ -z "${SERVICE_VAULT_URL}" ] && SERVICE_VAULT_URL="${VAULT_URL}"
+    SERVICE_VAULT_URL="${SERVICE_VAULT_URL}/runtime"
+    do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
+  }
+  _service_vault_variable() {
+    local _prefix=''
+    [ -n "${CUSTOMER}" ] && _prefix="$(echo "${CUSTOMER}" | tr '[:lower:]' '[:upper:]')_"
+    local _suffix=''
+    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
+    do_print_variable "${_prefix//-/_}" "${1:?}" "${_suffix}"
   }
   _service_ssh_variable() {
     local _prefix=''
@@ -226,6 +257,7 @@ define_util_ssh() {
       if [ -n "${ENV_NAME}" ]; then local _value="${_value}-${ENV_NAME}"; fi
       local _name="${_prefix}SSH_USER"
       declare -x "${_name}"="${_value}"
+      echo "declare -x \"${_name}\"=\"${_value}\""
       declare -p "${_name}"
     fi
   }
@@ -423,15 +455,6 @@ define_common_init() {
   define_util_print
   define_util_vault
   define_common_ci_job
-  do_func_invoke() {
-    local _func_name="${1}"
-    if [ "$(type -t "${_func_name:?}")" != function ]; then
-      do_print_info "# $_func_name is absent as a function"
-    else
-      do_print_info "# $_func_name"
-      eval "${@}"
-    fi
-  }
   init_first_do() {
     do_func_invoke 'init_first_custom_do'
     do_print_section 'INIT ALL BEGIN'
@@ -563,7 +586,7 @@ define_common_upload() {
     do_print_info 'UPLOAD SERVICE'
     SERVICE_NAME="${1}"
     SERVICE_GROUP="${2}"
-    UPLOAD_REMOTE_DIR="/home/${UPLOAD_SSH_USER:?}/${SERVICE_GROUP:?}/${SERVICE_NAME:?}-${CD_VERSION_TAG:?}"
+    UPLOAD_REMOTE_DIR="/home/${UPLOAD_USER:?}/${SERVICE_GROUP:?}/${SERVICE_NAME:?}-${CD_VERSION_TAG:?}"
     do_print_dash_pair 'RUNNER_LOCATION' "$(whoami)@$(hostname):${RUNNER_LOCAL_DIR:?}"
     do_print_dash_pair 'REMOTE_LOCATION' "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}"
     find "${RUNNER_LOCAL_DIR}" -type d -exec chmod 774 {} +
@@ -647,16 +670,14 @@ define_common_service() {
     SERVICE_DIR="${SERVICE_GROUP_DIR}/${SERVICE_NAME}"
     SERVICE_LOCATION="${SERVICE_USER_HOST:?}:${SERVICE_DIR}"
     do_print_dash_pair 'SERVICE_LOCATION' "${SERVICE_LOCATION}"
-    _service_vault_reset
-    SERVICE_UPLOAD_DIR="/home/${UPLOAD_SSH_USER:?}/${SERVICE_GROUP}/${SERVICE_NAME}-${CD_VERSION_TAG:?}"
-    UPLOAD_LOCATION="${UPLOAD_SSH_USER}@${JUMPER_SSH_HOST}:${SERVICE_UPLOAD_DIR}"
+    SERVICE_UPLOAD_DIR="/home/${UPLOAD_USER:?}/${SERVICE_GROUP}/${SERVICE_NAME}-${CD_VERSION_TAG:?}"
+    UPLOAD_LOCATION="${UPLOAD_USER}@${JUMPER_SSH_HOST}:${SERVICE_UPLOAD_DIR}"
     do_print_dash_pair 'UPLOAD_LOCATION' "${UPLOAD_LOCATION}"
-    [ -z "${CONTAINER_WORK_DIR}" ] && CONTAINER_WORK_DIR="/home/${SERVICE_USER}"
     _service_reset_status
     _service_check_version
   }
   service_info_print_do() {
-    do_print_trace "*** $(whoami)@$(hostname) [${FUNCNAME[*]}]"
+    do_print_trace "*** $(do_stack_trace)"
     local _container_cmd="${1:?}"
     do_print_trace '*** Currently deployed version:'
     cat "${SERVICE_DIR:?}/CD_VERSION"
@@ -668,21 +689,6 @@ define_common_service() {
     else
       do_print_trace '### Container is not created:' "${SERVICE_NAME}"
     fi
-  }
-  _service_vault_reset() {
-    SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN_RUNTIME')"
-    [ -z "${SERVICE_VAULT_TOKEN}" ] && SERVICE_VAULT_TOKEN="${VAULT_TOKEN}"
-    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL_RUNTIME')"
-    [ -z "${SERVICE_VAULT_URL}" ] && SERVICE_VAULT_URL="${VAULT_URL}"
-    SERVICE_VAULT_URL="${SERVICE_VAULT_URL}/runtime"
-    do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
-  }
-  _service_vault_variable() {
-    local _prefix=''
-    [ -n "${CUSTOMER}" ] && _prefix="$(echo "${CUSTOMER}" | tr '[:lower:]' '[:upper:]')_"
-    local _suffix=''
-    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
-    do_print_variable "${_prefix//-/_}" "${1:?}" "${_suffix}"
   }
   _service_reset_status() {
     do_print_dash_pair 'Runtime Variables'
@@ -724,6 +730,7 @@ define_common_service() {
 #===============================================================================
 
 define_common_verify() {
+  define_common_service
   do_verify() {
     do_print_info 'VERIFY SERVICE'
     [ -n "${1}" ] && SERVICE_NAME="${1}"
@@ -743,6 +750,7 @@ define_common_verify() {
 }
 
 define_common_deploy() {
+  define_common_service
   do_deploy() {
     do_print_info 'DEPLOY SERVICE'
     SERVICE_NAME="${1:-${SERVICE_NAME:?}}"
@@ -787,7 +795,7 @@ define_common_deploy() {
     local _remote_dir="${SERVICE_UPLOAD_DIR:?}/${_type}"
     local _remote_path="${_remote_dir}/${_file_path}"
     do_print_info "- fetch from ${_url} ## ${_content_key:?}"
-    do_print_info "- fetch to ${UPLOAD_SSH_USER}@${JUMPER_SSH_HOST}:${_remote_path}"
+    do_print_info "- fetch to ${UPLOAD_USER}@${JUMPER_SSH_HOST}:${_remote_path}"
     local _file_content
     _file_content="$(do_vault_fetch_with_key "${_url}" "${VAULT_TOKEN:?}" "${_content_key}")"
     if [ -z "${_file_content}" ]; then
@@ -1001,6 +1009,223 @@ define_common_deploy() {
     do_ssh_export_clear
   }
 } # define_common_deploy
+
+define_common_deploy_env() {
+  define_common_service
+  do_deploy_env_down() {
+    do_print_info 'DEPLOY SERVICE GROUP DOWN'
+    SERVICE_GROUP="${1:-${SERVICE_GROUP}}"
+    do_print_dash_pair 'SERVICE_GROUP' "${SERVICE_GROUP:?}"
+    do_print_dash_pair 'SERVICE_USER_HOST' "${SERVICE_USER_HOST:?}"
+    do_print_dash_pair 'UPLOAD_USER' "${UPLOAD_USER:?}"
+    SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP}"
+    local _remote_dir="${SERVICE_GROUP_DIR}/deploy-env"
+    local _local_dir="/home/${UPLOAD_USER}/${SERVICE_GROUP}/deploy-env"
+    deploy_env_distribute_jumper_do "${_local_dir}" "${_remote_dir}"
+    deploy_env_down_server_do "${_remote_dir}"
+    do_print_info 'DEPLOY SERVICE GROUP DOWN DONE'
+  }
+  do_deploy_env_up() {
+    do_print_info 'DEPLOY SERVICE GROUP UP'
+    SERVICE_GROUP="${1:-${SERVICE_GROUP}}"
+    SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP}"
+    set +e
+    do_ssh_export_clear
+    do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export deploy_env_reset_do
+    do_ssh_export SERVICE_GROUP_DIR
+    do_ssh_server_invoke deploy_env_up_do
+    local _status="${?}"
+    set -e
+    do_ssh_export_clear
+    local _head='# deploy_env_up_do exit with status'
+    case ${_status} in
+    0) do_print_trace "${_head} ${_status} (ok)" ;;
+    *) do_print_trace "${_head} ${_status} (unknown status)" ;;
+    esac
+    do_print_info 'DEPLOY SERVICE GROUP UP DONE'
+  }
+  deploy_env_up_do() {
+    do_print_trace "$(do_stack_trace)"
+    deploy_env_reset_do
+    cd "${SERVICE_GROUP_DIR}"
+    do_print_trace "# ${_compose_cmd:?} up"
+    ${_compose_cmd} up -d
+    do_print_trace "# ${_compose_cmd} up exited with status ${?}"
+  }
+  deploy_env_reset_do() {
+    if ! command -v podman-compose &>/dev/null; then
+      _compose_env_name='docker-compose.env'
+      _compose_yml_name='docker-compose.yml'
+      _compose_cmd="docker-compose -f $_compose_yml_name --compatibility"
+    else
+      _compose_env_name='container-compose.env'
+      _compose_yml_name='container-compose.yml'
+      _compose_cmd="sudo podman-compose -f $_compose_yml_name"
+    fi
+    _compose_env_old="${SERVICE_GROUP_DIR:?}/.env"
+    _compose_env_new="${SERVICE_GROUP_DIR}/deploy-env/${_compose_env_name}"
+    _compose_yml_old="${SERVICE_GROUP_DIR}/${_compose_yml_name}"
+    _compose_yml_new="${SERVICE_GROUP_DIR}/deploy-env/${_compose_yml_name}"
+  }
+  deploy_env_distribute_jumper_do() {
+    do_ssh_export_clear
+    do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export do_ssh_invoke do_ssh_exec do_ssh_exec_chain do_ssh_export do_ssh_export_clear
+    do_ssh_export SERVICE_USER_HOST do_here do_dir_make _remote_dir
+    set +e
+    do_ssh_jumper_invoke deploy_env_distribute_do "${_local_dir}" "${_remote_dir}"
+    local _status="${?}"
+    set -e
+    do_ssh_export_clear
+    local _head='# deploy_env_distribute_do exit with status'
+    case ${_status} in
+    0) do_print_trace "${_head} ${_status} (ok)" ;;
+    9) do_print_trace "${_head} ${_status} (local dir is absent)" ;;
+    *) do_print_trace "${_head} ${_status} (unknown status)" ;;
+    esac
+  }
+  deploy_env_distribute_do() {
+    local _local_dir="${1}"
+    do_print_trace "$(do_stack_trace)"
+    [ ! -d "${_local_dir:?}" ] && {
+      do_print_warn "'${_local_dir}' is absent"
+      return 9
+    }
+    do_ssh_export_clear
+    do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export do_dir_make _remote_dir
+    do_here do_ssh_exec "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" <<\--------
+      do_print_trace "# do_dir_make on $(whoami)@$(hostname)" "${_remote_dir}"
+      do_dir_make "${_remote_dir}"
+--------
+    local _status="${?}"
+    do_ssh_export_clear
+    [ ! ${_status} ] && return ${_status}
+    find "${_local_dir}" -type f -exec ls -lhA {} +
+    scp -rpC -o StrictHostKeyChecking=no "${_local_dir}/"* "${SERVICE_USER_HOST}:${_remote_dir}/" &&
+      do_print_trace "# scp to ${SERVICE_USER_HOST} (ok)"
+    do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export _remote_dir
+    do_here do_ssh_exec "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" <<\--------
+      chmod 600 "${_remote_dir}"/*
+      find "${_remote_dir}" -type f -exec ls -lhA {} +
+--------
+    do_ssh_export_clear
+    return 0
+  }
+  deploy_env_down_server_do() {
+    local _remote_dir="${1}"
+    local _service_group_lower
+    local _service_group_lower
+    _service_group_lower="$(echo "${SERVICE_GROUP}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
+    set +e
+    do_ssh_export_clear
+    do_ssh_export do_print_trace do_print_info do_print_warn do_print_colorful do_func_invoke do_diff
+    do_ssh_export deploy_env_reset_do deploy_env_diff_do deploy_env_replace_do deploy_env_backup_do
+    do_ssh_export _remote_dir CUSTOMER ENV_NAME CONTAINER_WORK_DIR
+    do_ssh_export SERVICE_VAULT_URL SERVICE_VAULT_TOKEN SERVICE_GROUP SERVICE_GROUP_DIR
+    do_ssh_export deploy_env_hook_do _service_group_lower "deploy_env_${_service_group_lower}_hook_do"
+    do_ssh_server_invoke deploy_env_down_do
+    local _status="${?}"
+    set -e
+    do_ssh_export_clear
+    local _head='# deploy_env_down_do exit with status'
+    case ${_status} in
+    0) do_print_trace "${_head} ${_status} (ok)" ;;
+    *) do_print_trace "${_head} ${_status} (unknown status)" ;;
+    esac
+  }
+  deploy_env_down_do() {
+    do_print_trace "$(do_stack_trace)"
+    deploy_env_reset_do
+    local _is_first
+    if [ -f "${_compose_yml_old:?}" ]; then
+      _is_first='no'
+    else _is_first='yes'; fi
+    deploy_env_replace_do "${_compose_env_new}"
+    cd "${SERVICE_GROUP_DIR:?}"
+    do_func_invoke deploy_env_hook_do
+    do_func_invoke "deploy_env_${_service_group_lower}_hook_do"
+    deploy_env_diff_do
+    do_print_trace "# diff result: env(${ENV_CHANGED}) yml(${YML_CHANGED})"
+    if [ 0 != "${YML_CHANGED}" ] && [ 1 != "${YML_CHANGED}" ]; then
+      do_print_warn "# ${FUNCNAME[0]} cancelled: exception"
+      return
+    fi
+    if [ 0 != "${ENV_CHANGED}" ] && [ 1 != "${ENV_CHANGED}" ]; then
+      do_print_warn "# ${FUNCNAME[0]} cancelled: exception"
+      return
+    fi
+    if [ 0 = "${ENV_CHANGED}" ] && [ 0 = "${YML_CHANGED}" ]; then
+      do_print_trace "# ${FUNCNAME[0]} cancelled: not changed"
+      return
+    fi
+    local _cp="cp --preserve -f"
+    if [ 'yes' = "${_is_first}" ]; then
+      do_print_trace "# ${FUNCNAME[0]}: first deployment"
+      ${_cp} "${_compose_yml_new:?}" "${_compose_yml_old:?}"
+      [ -f "${_compose_env_new:?}" ] && ${_cp} "${_compose_env_new:?}" "${_compose_env_old:?}"
+      return
+    fi
+    if [ 1 = "${ENV_CHANGED}" ] || [ 1 = "${YML_CHANGED}" ]; then
+      do_print_trace "# ${_compose_cmd:?} down"
+      ${_compose_cmd} down
+      local _status=${?}
+      do_print_trace "# ${_compose_cmd} down exited with status ${_status}"
+      [ ${_status} ] && {
+        ENV_BACKUP_NAME=".backup.$(date +'%Y%m%d.%H%M%S')"
+        deploy_env_backup_do
+        ${_cp} "${_compose_yml_new:?}" "${_compose_yml_old:?}"
+        [ -f "${_compose_env_new:?}" ] && ${_cp} "${_compose_env_new:?}" "${_compose_env_old:?}"
+      }
+    fi
+  }
+  deploy_env_diff_do() {
+    do_print_trace "# ${FUNCNAME[0]}"
+    do_diff "${_compose_env_old}" "${_compose_env_new}"
+    ENV_CHANGED="${?}"
+    do_diff "${_compose_yml_old}" "${_compose_yml_new}"
+    YML_CHANGED="${?}"
+    set -e
+  }
+  deploy_env_replace_do() {
+    local _path="${1}"
+    do_print_trace "- replace '${_path:?}'"
+    local _eth0_ipv4
+    [ ! -f "${_path}" ] && {
+      do_print_warn "- replace '${_path:?}' failed: No such file"
+      return 0
+    }
+    sed -i -e "s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR}|g" "${_path}"
+    sed -i -e "s|#VAULT_URL|${SERVICE_VAULT_URL}|g" "${_path}"
+    sed -i -e "s|#VAULT_TOKEN|${SERVICE_VAULT_TOKEN}|g" "${_path}"
+    sed -i -e "s|#DEPLOY_CUSTOMER|${CUSTOMER}|g" "${_path}"
+    sed -i -e "s|#DEPLOY_ENV_NAME|${ENV_NAME}|g" "${_path}"
+    _eth0_ipv4=$(/usr/sbin/ifconfig eth0 | grep 'inet ' | awk '{print $2}')
+    sed -i -e "s|#DEPLOY_HOST_IP|${_eth0_ipv4}|g" "${_path}"
+  }
+  deploy_env_backup_do() {
+    do_print_trace "# ${FUNCNAME[0]}"
+    cd "${SERVICE_GROUP_DIR:?}"
+    mkdir -p "./${ENV_BACKUP_NAME:?}"
+    local _path="./${_compose_yml_name:?}"
+    [ ! -f "${_path}" ] && return
+    cp --preserve "${_path}" "${ENV_BACKUP_NAME}/${_compose_yml_name}"
+    local _path="./.env"
+    [ -f "${_path}" ] && cp --preserve "${_path}" "${ENV_BACKUP_NAME}/${_compose_env_name:?}"
+    find . -type l -ls >"./${ENV_BACKUP_NAME}/cd_version_linked"
+    backup_cd_version() {
+      cd "${SERVICE_GROUP_DIR:?}"
+      echo "$(cat "${1}") -- ${1}" >>"./${ENV_BACKUP_NAME}/cd_version_all"
+    }
+    export -f backup_cd_version
+    export SERVICE_GROUP_DIR
+    export ENV_BACKUP_NAME
+    touch "./${ENV_BACKUP_NAME}/cd_version_all"
+    find "${SERVICE_GROUP_DIR}" -type f -name 'CD_VERSION' -exec bash -c 'backup_cd_version "$0"' {} \;
+  }
+} # define_common_deploy_env
 
 #===============================================================================
 
