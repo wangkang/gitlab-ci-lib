@@ -24,7 +24,7 @@ define_util_core() {
     else eval "${@}"; fi
   }
   do_dir_list() {
-    do_print_trace "$(do_stack_trace)"
+    do_print_trace "$(do_stack_trace)" "$(date +'%T')"
     local _dir="${1}"
     [ ! -d "${_dir:?}" ] && { return; }
     find "${_dir}" -type f -exec ls -lhA {} +
@@ -65,14 +65,13 @@ define_util_core() {
     chmod o-r,o-w,o-x,g-w,g-x './'*
   }
   do_dir_scp() {
-    do_print_trace "$(do_stack_trace)" "$(date +'%T')"
     local _local_dir="${1}"
     local _remote_dir="${2}"
     local _user_host="${3}"
     local _hook_do="${4}"
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful
-    do_ssh_invoke "$(do_ssh_exec_chain "${_user_host:?}")" do_dir_make "${_remote_dir}"
+    do_ssh_invoke "$(do_ssh_exec_chain "${_user_host:?}")" do_dir_make "'${_remote_dir}'"
     local _status="${?}"
     [ ! ${_status} ] && return ${_status}
     do_dir_list "${_local_dir:?}"
@@ -85,6 +84,7 @@ define_util_core() {
         do_ssh_export_clear
         do_ssh_export do_print_trace do_print_colorful do_dir_list do_dir_chmod _remote_dir
         do_ssh_invoke "$(do_ssh_exec_chain "${_user_host:?}")" "${_hook_do}" "${*:5}"
+        do_ssh_export_clear
       fi
       local _status="${?}"
       [ ! ${_status} ] && return ${_status}
@@ -218,8 +218,27 @@ define_util_ssh() {
     UPLOAD_USER="${UPLOAD_SSH_USER:-${ARG_SSH_USER}}"
     JUMPER_USER_HOST="${DEPLOY_SSH_USER}@${JUMPER_SSH_HOST}"
   }
+  do_ssh_agent_init() {
+    do_print_info "$(do_stack_trace)"
+    if [ -z "$(command -v ssh-agent)" ]; then
+      do_print_warn 'Error: ssh-agent is not installed'
+      exit 120
+    fi
+    if [ -z "$(command -v ssh-add)" ]; then
+      do_print_warn 'Error: ssh-add is not installed'
+      exit 120
+    fi
+    set +e
+    eval "$(ssh-agent -s)" &>/dev/null
+    do_print_info "- ssh-agent status code ${?}"
+    set -e
+    mkdir -p ~/.ssh
+    touch ~/.ssh/known_hosts
+    chmod 644 ~/'.ssh/known_hosts'
+    chmod 700 ~/'.ssh'
+  }
   do_ssh_add_user() {
-    do_print_info "# ${FUNCNAME[*]}"
+    do_print_info "$(do_stack_trace)"
     local _user_host="${ARG_SSH_USER}@${ARG_SSH_HOST}"
     if [ -z "${ARG_SSH_USER}" ]; then
       do_print_info 'SSH ADD USER ABORT (ARG_SSH_USER is absent)'
@@ -312,24 +331,6 @@ define_util_ssh() {
   _ssh_add_known() {
     echo "${1:?}" >>~/'.ssh/known_hosts'
   }
-  _ssh_agent_init() {
-    if [ -z "$(command -v ssh-agent)" ]; then
-      do_print_warn 'Error: ssh-agent is not installed'
-      exit 120
-    fi
-    if [ -z "$(command -v ssh-add)" ]; then
-      do_print_warn 'Error: ssh-add is not installed'
-      exit 120
-    fi
-    set +e
-    eval "$(ssh-agent -s)" &>/dev/null
-    do_print_info "- ssh-agent status code ${?}"
-    set -e
-    mkdir -p ~/.ssh
-    touch ~/.ssh/known_hosts
-    chmod 644 ~/'.ssh/known_hosts'
-    chmod 700 ~/'.ssh'
-  }
 }
 
 define_util_vault() {
@@ -337,7 +338,7 @@ define_util_vault() {
     local _url="${1}"
     local _func="${2}"
     if [ -z "${_url}" ]; then return; fi
-    do_print_info "# ${2} ${FUNCNAME[*]}"
+    do_print_info "$(do_stack_trace) ${2}"
     if [ "$(type -t "${_func:?}")" != function ]; then
       do_print_warn "- Function '${_func}' is undefined"
       return
@@ -597,7 +598,7 @@ define_common_init_ssh() {
   do_ssh_jumper_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
   do_ssh_server_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"; }
   init_ssh_do() {
-    _ssh_agent_init
+    do_ssh_agent_init
     do_ssh_add_user_default
     init_inject_env_bash_do
   }
@@ -626,51 +627,57 @@ define_common_build() {
 #===============================================================================
 
 define_common_upload() {
-  do_upload() {
-    do_print_info 'UPLOAD SERVICE'
-    SERVICE_NAME="${1}"
-    SERVICE_GROUP="${2}"
-    UPLOAD_REMOTE_DIR="/home/${UPLOAD_USER:?}/${SERVICE_GROUP:?}/${SERVICE_NAME:?}-${CD_VERSION_TAG:?}"
-    do_print_dash_pair 'RUNNER_LOCATION' "$(whoami)@$(hostname):${RUNNER_LOCAL_DIR:?}"
-    do_print_dash_pair 'REMOTE_LOCATION' "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}"
-    find "${RUNNER_LOCAL_DIR}" -type d -exec chmod 774 {} +
-    find "${RUNNER_LOCAL_DIR}" -type f -exec chmod 660 {} +
-    find "${RUNNER_LOCAL_DIR}" -type f -exec ls -lhA {} +
-    do_print_info 'UPLOAD   ' "$(date +'%T')"
-    local _dir="${UPLOAD_REMOTE_DIR:?}"
-    local _scp="scp -rpC -o StrictHostKeyChecking=no"
-    do_ssh_export_clear
-    do_ssh_export do_print_colorful do_print_warn do_dir_make do_dir_clean
-    do_ssh_upload_invoke upload_clean_dir_do "${_dir}"
-    do_ssh_export_clear
-    if ! $_scp "${RUNNER_LOCAL_DIR}/"* "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
-      do_print_warn 'UPLOAD FAILED'
-      exit 120
-    else
-      do_print_info 'UPLOAD OK' "$(date +'%T')"
-      do_ssh_export do_print_colorful do_print_trace do_dir_list
-      do_ssh_upload_invoke upload_cd_version_file_do "${_dir}" "${VERSION_BUILDING:?}"
-      do_ssh_export_clear
-    fi
-    do_upload_cleanup_local
-    do_print_info 'UPLOAD SERVICE DONE'
-  }
   do_upload_cleanup_local() {
     do_print_info 'UPLOAD CLEANUP LOCAL'
-    RUNNER_LOCAL_DIR="${CI_PROJECT_DIR:?}/tmp/upload"
-    mkdir -p "${RUNNER_LOCAL_DIR:?}"
-    rm -rf "${RUNNER_LOCAL_DIR:?}/"* && do_print_info 'UPLOAD CLEANUP LOCAL OK'
+    RUNNER_LOCAL_DIR="${CI_PROJECT_DIR:?}/temp-upload"
+    upload_clean_dir_do "${RUNNER_LOCAL_DIR}" && do_print_info 'UPLOAD CLEANUP LOCAL OK'
+  }
+  do_upload() {
+    do_print_info 'UPLOAD SERVICE' "[${2}::${1}]"
+    SERVICE_NAME="${1:-${SERVICE_NAME:?}}"
+    SERVICE_GROUP="${2:-${SERVICE_GROUP:?}}"
+    [ -z "${RUNNER_LOCAL_DIR}" ] && do_upload_cleanup_local
+    local _local_dir="${RUNNER_LOCAL_DIR:?}"
+    local _remote_dir="/home/${UPLOAD_USER:?}/${SERVICE_GROUP:?}/${SERVICE_NAME:?}-${CD_VERSION_TAG:?}"
+    upload_cd_version_file_do "${_local_dir}" "${VERSION_BUILDING:-0}"
+    upload_scp_do "${_local_dir}" "${_remote_dir}"
+    do_print_info 'UPLOAD SERVICE DONE' "[${2}::${1}]"
+  }
+  do_upload_env() {
+    do_print_info 'UPLOAD SERVICE ENV' "[${1}]"
+    SERVICE_GROUP="${1:-${SERVICE_GROUP:?}}"
+    [ -z "${RUNNER_LOCAL_DIR}" ] && do_upload_cleanup_local
+    local _local_dir="${RUNNER_LOCAL_DIR:?}"
+    local _remote_dir="/home/${UPLOAD_USER:?}/${SERVICE_GROUP:?}/env-deploy"
+    upload_scp_do "${_local_dir}" "${_remote_dir}"
+    do_print_info 'UPLOAD SERVICE ENV DONE' "[${1}]"
   }
   upload_clean_dir_do() {
     do_dir_clean "${1}"
     do_dir_make "${1}"
+  }
+  upload_scp_do() {
+    local _local_dir="${1}"
+    local _remote_dir="${2}"
+    do_print_dash_pair 'RUNNER_LOCATION' "$(whoami)@$(hostname):${_local_dir:?}"
+    do_print_dash_pair 'REMOTE_LOCATION' "${UPLOAD_USER_HOST:?}:${_remote_dir:?}"
+    do_ssh_export_clear
+    do_ssh_export do_print_colorful do_print_warn do_print_trace do_dir_make do_dir_clean
+    do_ssh_upload_invoke upload_clean_dir_do "'${_remote_dir}'"
+    do_ssh_export_clear
+    do_dir_scp "${_local_dir}" "${_remote_dir}" "${UPLOAD_USER_HOST:?}" upload_scp_hook_do
+    do_upload_cleanup_local
+  }
+  upload_scp_hook_do() {
+    find "${_remote_dir:?}" -type d -exec chmod 774 {} +
+    find "${_remote_dir:?}" -type f -exec chmod 660 {} +
+    do_dir_list "${_remote_dir:?}"
   }
   upload_cd_version_file_do() {
     local _dir="${1}"
     local _version="${2}"
     cd "${_dir:?}" && touch ./CD_VERSION &&
       echo "${_version:?}" >./CD_VERSION && chmod 640 ./CD_VERSION
-    do_dir_list "${_dir}"
   }
 } # define_common_upload
 
