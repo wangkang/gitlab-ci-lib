@@ -21,11 +21,10 @@ define_util_core() {
     local _func_name="${1}"
     if [ "$(type -t "${_func_name:?}")" != function ]; then
       do_print_trace "# $_func_name is an absent function"
-    else
-      eval "${@}"
-    fi
+    else eval "${@}"; fi
   }
   do_dir_list() {
+    do_print_trace "$(do_stack_trace)"
     local _dir="${1}"
     [ ! -d "${_dir:?}" ] && { return; }
     find "${_dir}" -type f -exec ls -lhA {} +
@@ -50,6 +49,48 @@ define_util_core() {
       do_print_warn "$(find "${_dir}" -type f -exec ls -lhA {} +)"
     fi
   }
+  do_dir_chmod() {
+    do_print_trace "$(do_stack_trace)"
+    local _dir="${1}"
+    [ ! -d "${_dir:?}" ] && return
+    cd "${_dir}"
+    [ -d "./bin" ] && chmod 700 "./bin/"*
+    [ -d "./env" ] && chmod 600 "./env/"*
+    [ -d "./etc" ] && chmod 600 "./etc/"*
+    [ -d "./lib" ] && chmod 600 "./lib/"*
+    [ -d "./log" ] && chmod 640 "./log/"*
+    [ -d "./log" ] && chmod 750 "./log"
+    [ -d "./tmp" ] && chmod 750 "./tmp"
+    [ -d "./native" ] && chmod 600 "./native/"*
+    chmod o-r,o-w,o-x,g-w,g-x './'*
+  }
+  do_dir_scp() {
+    do_print_trace "$(do_stack_trace)" "$(date +'%T')"
+    local _local_dir="${1}"
+    local _remote_dir="${2}"
+    local _user_host="${3}"
+    local _hook_do="${4}"
+    do_ssh_export_clear
+    do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_invoke "$(do_ssh_exec_chain "${_user_host:?}")" do_dir_make "${_remote_dir}"
+    local _status="${?}"
+    [ ! ${_status} ] && return ${_status}
+    do_dir_list "${_local_dir:?}"
+    if ! scp -rpC -o StrictHostKeyChecking=no "${_local_dir}/"* "${_user_host}:${_remote_dir:?}/"; then
+      do_print_warn "scp to ${_user_host}:${_remote_dir:?}/ failed"
+      return 9
+    else
+      do_print_trace "scp to ${_user_host} (ok)" "$(date +'%T')"
+      if [ "$(type -t "${_hook_do}")" = function ]; then
+        do_ssh_export_clear
+        do_ssh_export do_print_trace do_print_colorful do_dir_list do_dir_chmod _remote_dir
+        do_ssh_invoke "$(do_ssh_exec_chain "${_user_host:?}")" "${_hook_do}" "${*:5}"
+      fi
+      local _status="${?}"
+      [ ! ${_status} ] && return ${_status}
+    fi
+    do_ssh_export_clear
+  }
   do_diff() {
     printf "\033[0;34m%s\033[0m\n" "# ${FUNCNAME[0]} '${1:?}' '${2:?}'"
     [ ! -f "${1}" ] && touch "${1}" && chmod 600 "${1}" && ls -lh "${1}"
@@ -68,16 +109,17 @@ define_util_core() {
   do_write_file() {
     local _path="${1}"
     local _file_content="${2}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 660
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 660 "${_path}"
     ls -lh "${_path}"
     printf '%s\n' "${_file_content:?}" >"${_path}"
     ls -lh "${_path}"
   }
   do_write_log_file() {
+    do_print_trace "$(do_stack_trace)"
     local _path="${1}"
     local _line="${*:2}"
     _line="[$(date +'%Y-%m-%d %T %Z')] ${_line:?}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 640
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 640 "${_path}"
     echo "${_line}" >>"${_path}"
     tail -3 "${_path}"
     local _lines
@@ -408,9 +450,11 @@ define_util_print() {
     local _clear='\033[0m'
     if [ ${#} -gt 0 ]; then
       local _n=$((${#FUNCNAME[@]} - 2))
-      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN --' "${FUNCNAME[*]:1:${_n}}"
+      local _stack
+      _stack="$(whoami)@$(hostname) --> $(echo -n "${FUNCNAME[*]:1:${_n}} " | tac -s ' ')"
+      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN --' "${_stack}"
       printf "%s\n" "${@}" | awk '{printf "#%3d| \033[0;35m%s\033[0m\n", NR, $0}'
-      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG END ----' "${FUNCNAME[*]:1:${_n}}"
+      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG END ----' "${_stack}"
     fi
   }
   do_print_dash_pair() {
@@ -595,7 +639,8 @@ define_common_upload() {
     do_print_info 'UPLOAD   ' "$(date +'%T')"
     local _dir="${UPLOAD_REMOTE_DIR:?}"
     local _scp="scp -rpC -o StrictHostKeyChecking=no"
-    do_ssh_export do_print_warn do_dir_make do_dir_clean
+    do_ssh_export_clear
+    do_ssh_export do_print_colorful do_print_warn do_dir_make do_dir_clean
     do_ssh_upload_invoke upload_clean_dir_do "${_dir}"
     do_ssh_export_clear
     if ! $_scp "${RUNNER_LOCAL_DIR}/"* "${UPLOAD_USER_HOST:?}:${UPLOAD_REMOTE_DIR}/"; then
@@ -603,7 +648,7 @@ define_common_upload() {
       exit 120
     else
       do_print_info 'UPLOAD OK' "$(date +'%T')"
-      do_ssh_export do_dir_list
+      do_ssh_export do_print_colorful do_print_trace do_dir_list
       do_ssh_upload_invoke upload_cd_version_file_do "${_dir}" "${VERSION_BUILDING:?}"
       do_ssh_export_clear
     fi
@@ -632,16 +677,13 @@ define_common_upload() {
 #===============================================================================
 
 define_common_service() {
-  do_on_deploy_host() {
-    if [ -n "${1}" ]; then do_on_deploy_host_1="${1}"; fi
-    # shellcheck disable=SC2029
-    ssh "${JUMPER_USER_HOST:?}" "ssh \"${SERVICE_USER_HOST:?}\" $'${do_on_deploy_host_1:?}'"
-  }
   do_cat_running_version() {
-    do_on_deploy_host "
-      if [ 1 = \$($_container_cmd ps -a | grep '${SERVICE_NAME}' | wc -l || echo 0) ]; then
-        $_container_cmd exec ${SERVICE_NAME} cat ${CONTAINER_WORK_DIR}/CD_VERSION 2>/dev/null || echo 0
-      else echo 0; fi "
+    local _command
+    _command=$(printf '%s' "if \
+    [ 1 = \$($_container_cmd ps -a | grep '${SERVICE_NAME}' | wc -l || echo 0) ]; then
+      $_container_cmd exec ${SERVICE_NAME} cat ${CONTAINER_WORK_DIR}/CD_VERSION 2>/dev/null || echo 0
+    else echo 0; fi" | tr -s ' ')
+    do_ssh_server_exec "${_command}"
   }
   do_inspect_container() {
     do_print_info "INSPECT [${SERVICE_LOCATION}]"
@@ -690,11 +732,29 @@ define_common_service() {
       do_print_trace '### Container is not created:' "${SERVICE_NAME}"
     fi
   }
+  service_container_exist_do() {
+    local _service_name="${1}"
+    local _container_cmd="${2}"
+    if [ 1 = "$(${_container_cmd:?} ps -a | grep -c "${_service_name:?}" || echo 0)" ]; then
+      printf 'yes'
+    else printf 'no'; fi
+  }
+  service_container_stop_do() {
+    do_print_trace "$(do_stack_trace)"
+    local _service_name="${1}"
+    local _container_cmd="${2}"
+    if [ 1 = "$(${_container_cmd:?} ps -a | grep -c "${_service_name:?}" || echo 0)" ]; then
+      ${_container_cmd} stop "${_service_name}"
+      return ${?}
+    fi
+    return 0
+  }
   _service_reset_status() {
     do_print_dash_pair 'Runtime Variables'
     SERVICE_HOST_UID=$(do_ssh_server_exec 'id')
     do_print_dash_pair 'SERVICE_HOST_UID' "${SERVICE_HOST_UID}"
-    IS_PODMAN_HOST=$(do_ssh_server_exec 'if ! command -v podman-compose &>/dev/null; then echo no; else echo yes; fi')
+    IS_PODMAN_HOST=$(do_ssh_server_exec \
+      'if ! command -v podman-compose &>/dev/null; then echo no; else echo yes; fi')
     do_print_dash_pair 'IS_PODMAN_HOST' "${IS_PODMAN_HOST}"
     if [ 'yes' = "${IS_PODMAN_HOST}" ]; then
       _container_cmd='sudo podman'
@@ -750,13 +810,12 @@ define_common_verify() {
 }
 
 define_common_deploy() {
-  define_common_service
+  define_common_deploy_env
   do_deploy() {
     do_print_info 'DEPLOY SERVICE'
     SERVICE_NAME="${1:-${SERVICE_NAME:?}}"
     SERVICE_GROUP="${2:-${SERVICE_GROUP:?}}"
     SERVICE_NAME_LOWER="$(echo "${SERVICE_NAME:?}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
-    SERVICE_GROUP_LOWER="$(echo "${SERVICE_GROUP:?}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
     service_common_do
     if [ "${VERSION_BUILDING:?}" != "${VERSION_DEPLOYING:?}" ]; then
       do_print_info 'DEPLOY SERVICE REJECTED' "# package version is not ${VERSION_BUILDING}"
@@ -764,11 +823,11 @@ define_common_deploy() {
     fi
     do_func_invoke deploy_patch_hook_do
     do_func_invoke "deploy_${SERVICE_NAME_LOWER}_patch_hook_do"
-    _deploy_init
-    _deploy_env
-    _deploy_service
+    if [ 'yes' = "${IS_PODMAN_HOST}" ]; then
+      _compose_env_name='container-compose.env'
+    else _compose_env_name='docker-compose.env'; fi
+    deploy_service_jumper_do
     do_print_info 'DEPLOY SERVICE DONE'
-    do_inspect_container
   }
   do_deploy_vault_env() {
     do_print_info "# ${FUNCNAME[*]}"
@@ -781,14 +840,13 @@ define_common_deploy() {
     local _line_count
     _line_count=$(echo "${_code}" | wc -l | xargs)
     do_print_info "- fetch from vault: ${_line_count} lines"
-    do_ssh_server_exec "printf '%s\n' '${_code}' >>'${DEPLOY_ENV_SRC:?}'"
+    do_ssh_server_exec "printf '%s\n' '${_code}' >>'${_compose_env_new:?}'"
   }
   do_deploy_vault_patch() {
     do_print_info "# ${FUNCNAME[0]}"
     local _file_path="${1}"
     local _type="${2:-etc}"
     local _content_key="${_file_path:?}"
-    #_content_key="$(printf '%s' "${_file_path:?}" | tr '-' '_' | tr '.' '_')"
     _content_key="${_content_key//./_}"
     _content_key="${_content_key//-/_}"
     local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-${_type}"
@@ -829,184 +887,61 @@ define_common_deploy() {
       do_print_info 'UPLOAD PATCH OK' "$(date +'%T')"
     fi
   }
-  _deploy_init() {
-    if [ 'yes' = "${IS_PODMAN_HOST}" ]; then
-      _compose_env_name='container-compose.env'
-      _compose_yml_name='container-compose.yml'
-      _compose_cmd="sudo podman-compose -f $_compose_yml_name"
-    else
-      _compose_env_name='docker-compose.env'
-      _compose_yml_name='docker-compose.yml'
-      _compose_cmd="docker-compose -f $_compose_yml_name --compatibility"
-    fi
-    _scp="scp -rpC -o StrictHostKeyChecking=no"
-    SERVICE_DEPLOY_DIR="${SERVICE_DIR}-${CD_VERSION_TAG:?}"
-    DEPLOY_ENV_SRC="${SERVICE_DEPLOY_DIR}/env/$_compose_env_name"
-    DEPLOY_YML_SRC="${SERVICE_DEPLOY_DIR}/env/$_compose_yml_name"
-  }
-  DECLARE_DO_TRACE=$(printf '%s' "do_trace() { \
-    if   [ \$# -gt 1 ]; then printf \"\033[0;34m%s\033[0m %s\n\" \"\$1\" \"\$2\"; \
-    elif [ \$# -gt 0 ]; then printf \"\033[0;34m%s\033[0m\n\"    \"\$1\";         \
-    else printf \"\"; fi }; " | tr -s ' ')
-  _deploy_env() {
-    local _local_dir="${SERVICE_UPLOAD_DIR:?}/env"
-    local _remote_dir="${SERVICE_DEPLOY_DIR:?}/env"
-    local _u_ssh="ssh ${JUMPER_USER_HOST:?}"
-    local _d_ssh="ssh ${SERVICE_USER_HOST:?}"
-    CONTAINER_VERSION_MOUNT="- ./${SERVICE_NAME}/CD_VERSION:\${CONTAINER_WORK_DIR}/CD_VERSION:ro"
-    CONTAINER_ENTRYPOINT_MOUNT="- ./${SERVICE_NAME}/bin/${SERVICE_NAME}.sh:/usr/local/bin/${SERVICE_NAME}:ro"
-    $_u_ssh "
-    ${DECLARE_DO_TRACE}
-    if [ ! -d '$_local_dir' ]; then
-      do_trace '### Not a directory: $_local_dir'
-      exit 0
-    fi
-    do_trace '# find $_local_dir'
-    find  '$_local_dir' -type f -exec ls -lhA {} +
-    $_d_ssh 'mkdir -p $_remote_dir'
-    do_trace '# scp  $_local_dir'
-    $_scp '$_local_dir/'* ${SERVICE_USER_HOST}:$_remote_dir/
-    $_d_ssh $'
-      ${DECLARE_DO_TRACE}
-      do_trace \'- replace ${DEPLOY_ENV_SRC}\'
-      [ -f \'${DEPLOY_ENV_SRC}\' ] && {
-        _eth0_ipv4=\$(/usr/sbin/ifconfig eth0 | grep \'inet \'| awk \'{print \$2}\')
-        sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR}|g\'   ${DEPLOY_ENV_SRC}
-        sed -i -e \"s|#VAULT_URL|${SERVICE_VAULT_URL}|g\"             ${DEPLOY_ENV_SRC}
-        sed -i -e \"s|#VAULT_TOKEN|${SERVICE_VAULT_TOKEN}|g\"         ${DEPLOY_ENV_SRC}
-        sed -i -e \"s|#DEPLOY_CUSTOMER|${CUSTOMER:?}|g\"              ${DEPLOY_ENV_SRC}
-        sed -i -e \'s|#DEPLOY_ENV_NAME|${ENV_NAME:?}|g\'              ${DEPLOY_ENV_SRC}
-        sed -i -e \"s|#DEPLOY_HOST_IP|\$_eth0_ipv4|g\"                ${DEPLOY_ENV_SRC}
-      }
-      do_trace \'- replace ${DEPLOY_YML_SRC}\'
-      [ -f \'${DEPLOY_YML_SRC}\' ] && {
-        sed -i -e \'s|#CONTAINER_VERSION_MOUNT|${CONTAINER_VERSION_MOUNT:?}|g\'       ${DEPLOY_YML_SRC}
-        sed -i -e \'s|#CONTAINER_ENTRYPOINT_MOUNT|${CONTAINER_ENTRYPOINT_MOUNT:?}|g\' ${DEPLOY_YML_SRC}
-      }
-      do_trace \'# find $_remote_dir\'
-      find \'$_remote_dir\' -type f -exec ls -lhA {} +
-    ' "
-    do_func_invoke deploy_env_hook_do
-    do_func_invoke "deploy_${SERVICE_GROUP_LOWER}_env_hook_do"
-    do_func_invoke "deploy_${SERVICE_NAME_LOWER}_env_hook_do"
-  }
-  _deploy_env_diff() {
-    DECLARE_DO_DIFF="do_diff() {                                         \
-      printf \'\033[0;34m%s\033[0m\n\' \"# diff \${1:?} \${2:?}\";       \
-      diff --unchanged-line-format=\'\'                                  \
-      --old-line-format=\"\033[0;31m- |%dn| %L\033[0m\"                  \
-      --new-line-format=\"\033[0;32m+ |%dn| %L\033[0m\" \"\$1\" \"\$2\"; \
-    }; "
-    _diff_result=$(
-      do_on_deploy_host "
-      ${DECLARE_DO_TRACE}
-      ${DECLARE_DO_DIFF}
-      _new='${DEPLOY_ENV_SRC:?}'
-      _old='${SERVICE_GROUP_DIR}/.env'
-      if [ ! -f \"\$_old\" ]; then touch \"\$_old\"; fi
-      do_diff \"\$_old\" \"\$_new\"
-      _env_changed=\$?
-      _new='${DEPLOY_YML_SRC:?}'
-      _old='${SERVICE_GROUP_DIR}/$_compose_yml_name'
-      if [ ! -f \"\$_old\" ]; then touch \"\$_old\"; fi
-      do_diff \"\$_old\" \"\$_new\"
-      _yml_changed=\$?
-      do_trace \"# diff result: env(\$_env_changed) yml(\$_yml_changed)\"
-      if [ 1 = \$_env_changed ] || [ 1 = \$_yml_changed ];
-      then echo 'yes';
-      else echo ' no'; fi "
-    )
-    echo "${_diff_result:0:${#_diff_result}-3}"
-    ENV_CHANGED=$(echo "${_diff_result: -3}" | xargs)
-    do_print_dash_pair 'ENV_CHANGED' "${ENV_CHANGED}"
-  }
-  _deploy_service() {
-    DECLARE_DO_CHECK_CONTAINER="do_check_container() {   \
-      if [ 1 = \$($_container_cmd ps -a | grep \'${SERVICE_NAME}\' | wc -l || echo 0) ]; then \
-        _container_created=\'yes\';      \
-      else _container_created=\'no\'; fi \
-    }; "
-    _deploy_env_diff
-    ENV_BACKUP_NAME="backup.$(date +'%Y%m%d.%H%M%S')"
-    do_print_dash_pair 'ENV_BACKUP_NAME' "${ENV_BACKUP_NAME}"
-    local _u_ssh="ssh ${JUMPER_USER_HOST}"
-    local _d_ssh="ssh ${SERVICE_USER_HOST}"
-    local _local_dir="${SERVICE_UPLOAD_DIR}"
-    local _remote_dir="${SERVICE_DEPLOY_DIR}"
-    local _container_stop_cmd="$_container_cmd stop"
-    local _rsync_cmd='rsync -avr'
-    $_u_ssh "
-    $_d_ssh $'
-      ${DECLARE_DO_TRACE}
-      ${DECLARE_DO_CHECK_CONTAINER}
-      do_backup() {
-        cd $_remote_dir/..
-        echo \"\$(cat \${1}) -- \${1}\" >> ./${ENV_BACKUP_NAME}/service_versions
-      };
-      do_check_container
-      if [ \'yes\' != \"\$_container_created\" ]; then
-        exit 0
-      fi
-      if [ \'yes\' != \'${ENV_CHANGED:?}\' ]; then
-        do_trace \'# $_container_cmd stop\'
-        $_container_stop_cmd ${SERVICE_NAME}
-        do_trace \"# $_container_cmd stop exited with status \$?\"
-      else
-        cd $_remote_dir/..
-        mkdir -p ./${ENV_BACKUP_NAME}
-        touch ./${ENV_BACKUP_NAME}/service_versions
-        do_trace \'# do_backup\'
-        export -f do_backup
-        find \'$_remote_dir\' -type f -name \'CD_VERSION\' -exec bash -c \'do_backup \"\$0\"\' {} \;
-        do_trace \'# do_backup done\'
-        do_trace \'# $_compose_cmd down\'
-        $_compose_cmd down
-        do_trace \"# $_compose_cmd down exited with status \$?\"
-        mv ./$_compose_yml_name ./${ENV_BACKUP_NAME}/
-        mv ./.env ./${ENV_BACKUP_NAME}/$_compose_env_name
-      fi
-    '
-    ${DECLARE_DO_TRACE}
-    do_trace '# find $_local_dir'
-    cd '$_local_dir'
-    find '$_local_dir' -type f -exec ls -lhA {} +
-    do_trace '# $_rsync_cmd --exclude env/* $_local_dir/ ${SERVICE_USER_HOST:?}:$_remote_dir'
-    $_rsync_cmd --exclude 'env/*' '$_local_dir/' '${SERVICE_USER_HOST:?}:$_remote_dir'
-    $_d_ssh $'
-      ${DECLARE_DO_TRACE}
-      ${DECLARE_DO_CHECK_CONTAINER}
-      [ -d \'$_remote_dir/native\' ] && chmod 600 \'$_remote_dir/native/\'*
-      [ -d \'$_remote_dir/bin\' ] && chmod 700 \'$_remote_dir/bin/\'*
-      [ -d \'$_remote_dir/env\' ] && chmod 600 \'$_remote_dir/env/\'*
-      [ -d \'$_remote_dir/etc\' ] && chmod 600 \'$_remote_dir/etc/\'*
-      [ -d \'$_remote_dir/lib\' ] && chmod 600 \'$_remote_dir/lib/\'*
-      [ -d \'$_remote_dir/log\' ] && chmod 640 \'$_remote_dir/log/\'*
-      [ -d \'$_remote_dir/log\' ] && chmod 750 \'$_remote_dir/log\'
-      [ -d \'$_remote_dir/tmp\' ] && chmod 750 \'$_remote_dir/tmp\'
-      do_trace \'# find $_remote_dir\'
-      find    \'$_remote_dir\' -type f -exec ls -lhA {} +
-      ln -sfn \'$_remote_dir\' \'$_remote_dir/CD_LINK\'
-      mv -Tf  \'$_remote_dir/CD_LINK\' ${SERVICE_DIR:?} && {
-        do_check_container
-        if [ \'yes\' != \'${ENV_CHANGED}\' ] && [ \'yes\' = \"\$_container_created\" ]; then
-          do_trace \'# $_container_cmd start\'
-          $_container_cmd start ${SERVICE_NAME}
-          do_trace \"# $_container_cmd start exited with status \$?\"
-        else
-          cd $_remote_dir/..
-          cp --preserve $_remote_dir/env/$_compose_env_name ./.env
-          cp --preserve $_remote_dir/env/$_compose_yml_name ./
-          do_trace \'# $_compose_cmd up -d\'
-          $_compose_cmd up -d
-          do_trace \"# $_compose_cmd up -d exited with status \$?\"
-        fi
-      }
-    ' "
-    do_print_info 'WRITE DEPLOY LOG'
-    local _line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_ID} ${CI_JOB_ID}]"
-    local _path="${SERVICE_DIR:?}/CD_VERSION_LOG"
-    do_ssh_server_invoke do_write_log_file "${_path}" "${_line}" && do_print_info 'WRITE DEPLOY LOG OK'
+  deploy_service_jumper_do() {
+    local _cd_log_line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_ID} ${CI_JOB_ID}]"
     do_ssh_export_clear
+    do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export do_dir_make do_dir_list do_dir_chmod do_dir_scp do_write_log_file
+    do_ssh_export do_ssh_invoke do_ssh_exec do_ssh_exec_chain do_ssh_export do_ssh_export_clear
+    do_ssh_export service_container_stop_do
+    do_ssh_export SERVICE_NAME SERVICE_USER_HOST SERVICE_DIR SERVICE_UPLOAD_DIR CD_VERSION_TAG
+    do_ssh_export _container_cmd _cd_log_line
+    do_ssh_jumper_invoke deploy_service_do
+    do_ssh_export_clear
+  }
+  deploy_service_do() {
+    do_print_trace "$(do_stack_trace)"
+    do_ssh_export_clear
+    do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export service_container_stop_do
+    set +e
+    do_ssh_invoke "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" \
+      service_container_stop_do "'${SERVICE_NAME:?}'" "'${_container_cmd}'"
+    local _status=${?}
+    set -e
+    do_ssh_export_clear
+    local _head='# service_container_stop_do exit with status'
+    case ${_status} in
+    0) do_print_trace "${_head} ${_status} (ok)" ;;
+    *) do_print_warn "${_head} ${_status} (unknown status)" ;;
+    esac
+    [ 0 != ${_status} ] && return ${_status}
+    do_dir_scp_hook() {
+      do_dir_chmod "${_remote_dir}"
+      ln -sfn "${_remote_dir}" "${_remote_dir}/CD_LINK"
+      do_dir_list "${_remote_dir}"
+      mv -Tf "${_remote_dir}/CD_LINK" "${1:?}"
+    }
+    export -f do_dir_scp_hook
+    SERVICE_DEPLOY_DIR="${SERVICE_DIR:?}-${CD_VERSION_TAG:?}"
+    set +e
+    do_dir_scp "${SERVICE_UPLOAD_DIR:?}" "${SERVICE_DEPLOY_DIR:?}" "${SERVICE_USER_HOST:?}" 'do_dir_scp_hook' "${SERVICE_DIR:?}"
+    local _status=${?}
+    set -e
+    local _head='# do_dir_scp exit with status'
+    case ${_status} in
+    0) do_print_trace "${_head} ${_status} (ok)" ;;
+    *) do_print_trace "${_head} ${_status} (unknown status)" ;;
+    esac
+    [ 0 = ${_status} ] && {
+      do_print_trace 'WRITE DEPLOY LOG'
+      local _path="${SERVICE_DIR:?}/CD_VERSION_LOG"
+      do_ssh_export_clear
+      do_ssh_export do_print_trace do_print_warn do_print_colorful
+      do_ssh_invoke "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" \
+        do_write_log_file "'${_path}'" "'${_cd_log_line:?}'" && do_print_trace 'WRITE DEPLOY LOG OK'
+      do_ssh_export_clear
+    }
   }
 } # define_common_deploy
 
@@ -1015,13 +950,15 @@ define_common_deploy_env() {
   do_deploy_env_down() {
     do_print_info 'DEPLOY SERVICE GROUP DOWN'
     SERVICE_GROUP="${1:-${SERVICE_GROUP}}"
+    do_ssh_reset_service
     do_print_dash_pair 'SERVICE_GROUP' "${SERVICE_GROUP:?}"
     do_print_dash_pair 'SERVICE_USER_HOST' "${SERVICE_USER_HOST:?}"
     do_print_dash_pair 'UPLOAD_USER' "${UPLOAD_USER:?}"
     SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP}"
-    local _remote_dir="${SERVICE_GROUP_DIR}/deploy-env"
-    local _local_dir="/home/${UPLOAD_USER}/${SERVICE_GROUP}/deploy-env"
-    deploy_env_distribute_jumper_do "${_local_dir}" "${_remote_dir}"
+    ENV_DEPLOY_DIR="${SERVICE_GROUP_DIR}/env-deploy"
+    local _local_dir="/home/${UPLOAD_USER}/${SERVICE_GROUP}/env-deploy"
+    local _remote_dir="${ENV_DEPLOY_DIR}"
+    deploy_env_jumper_do "${_local_dir}" "${_remote_dir}"
     deploy_env_down_server_do "${_remote_dir}"
     do_print_info 'DEPLOY SERVICE GROUP DOWN DONE'
   }
@@ -1029,11 +966,12 @@ define_common_deploy_env() {
     do_print_info 'DEPLOY SERVICE GROUP UP'
     SERVICE_GROUP="${1:-${SERVICE_GROUP}}"
     SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP}"
+    do_ssh_reset_service
     set +e
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful
     do_ssh_export deploy_env_reset_do
-    do_ssh_export SERVICE_GROUP_DIR
+    do_ssh_export SERVICE_GROUP_DIR ENV_DEPLOY_DIR
     do_ssh_server_invoke deploy_env_up_do
     local _status="${?}"
     set -e
@@ -1064,54 +1002,40 @@ define_common_deploy_env() {
       _compose_cmd="sudo podman-compose -f $_compose_yml_name"
     fi
     _compose_env_old="${SERVICE_GROUP_DIR:?}/.env"
-    _compose_env_new="${SERVICE_GROUP_DIR}/deploy-env/${_compose_env_name}"
-    _compose_yml_old="${SERVICE_GROUP_DIR}/${_compose_yml_name}"
-    _compose_yml_new="${SERVICE_GROUP_DIR}/deploy-env/${_compose_yml_name}"
+    _compose_yml_old="${SERVICE_GROUP_DIR:?}/${_compose_yml_name}"
+    _compose_env_new="${ENV_DEPLOY_DIR:?}/${_compose_env_name}"
+    _compose_yml_new="${ENV_DEPLOY_DIR:?}/${_compose_yml_name}"
   }
-  deploy_env_distribute_jumper_do() {
+  deploy_env_jumper_do() {
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export do_dir_make do_dir_list do_dir_chmod do_dir_scp
     do_ssh_export do_ssh_invoke do_ssh_exec do_ssh_exec_chain do_ssh_export do_ssh_export_clear
-    do_ssh_export SERVICE_USER_HOST do_here do_dir_make _remote_dir
+    do_ssh_export SERVICE_USER_HOST _remote_dir
     set +e
-    do_ssh_jumper_invoke deploy_env_distribute_do "${_local_dir}" "${_remote_dir}"
+    do_ssh_jumper_invoke deploy_env_do "${_local_dir}" "${_remote_dir}"
     local _status="${?}"
     set -e
     do_ssh_export_clear
-    local _head='# deploy_env_distribute_do exit with status'
+    local _head='# deploy_env_do exit with status'
     case ${_status} in
     0) do_print_trace "${_head} ${_status} (ok)" ;;
     9) do_print_trace "${_head} ${_status} (local dir is absent)" ;;
     *) do_print_trace "${_head} ${_status} (unknown status)" ;;
     esac
   }
-  deploy_env_distribute_do() {
+  deploy_env_do() {
     local _local_dir="${1}"
-    do_print_trace "$(do_stack_trace)"
     [ ! -d "${_local_dir:?}" ] && {
       do_print_warn "'${_local_dir}' is absent"
       return 9
     }
-    do_ssh_export_clear
-    do_ssh_export do_print_trace do_print_warn do_print_colorful
-    do_ssh_export do_dir_make _remote_dir
-    do_here do_ssh_exec "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" <<\--------
-      do_print_trace "# do_dir_make on $(whoami)@$(hostname)" "${_remote_dir}"
-      do_dir_make "${_remote_dir}"
---------
-    local _status="${?}"
-    do_ssh_export_clear
-    [ ! ${_status} ] && return ${_status}
-    find "${_local_dir}" -type f -exec ls -lhA {} +
-    scp -rpC -o StrictHostKeyChecking=no "${_local_dir}/"* "${SERVICE_USER_HOST}:${_remote_dir}/" &&
-      do_print_trace "# scp to ${SERVICE_USER_HOST} (ok)"
-    do_ssh_export do_print_trace do_print_warn do_print_colorful
-    do_ssh_export _remote_dir
-    do_here do_ssh_exec "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" <<\--------
+    do_dir_scp_hook() {
       chmod 600 "${_remote_dir}"/*
-      find "${_remote_dir}" -type f -exec ls -lhA {} +
---------
-    do_ssh_export_clear
+      do_dir_list "${_remote_dir}"
+    }
+    export -f do_dir_scp_hook
+    do_dir_scp "${_local_dir:?}" "${_remote_dir:?}" "${SERVICE_USER_HOST:?}" 'do_dir_scp_hook'
     return 0
   }
   deploy_env_down_server_do() {
@@ -1123,9 +1047,9 @@ define_common_deploy_env() {
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_info do_print_warn do_print_colorful do_func_invoke do_diff
     do_ssh_export deploy_env_reset_do deploy_env_diff_do deploy_env_replace_do deploy_env_backup_do
-    do_ssh_export _remote_dir CUSTOMER ENV_NAME CONTAINER_WORK_DIR
-    do_ssh_export SERVICE_VAULT_URL SERVICE_VAULT_TOKEN SERVICE_GROUP SERVICE_GROUP_DIR
-    do_ssh_export deploy_env_hook_do _service_group_lower "deploy_env_${_service_group_lower}_hook_do"
+    do_ssh_export CUSTOMER ENV_NAME CONTAINER_WORK_DIR _remote_dir _service_group_lower
+    do_ssh_export SERVICE_VAULT_URL SERVICE_VAULT_TOKEN SERVICE_GROUP SERVICE_GROUP_DIR ENV_DEPLOY_DIR
+    do_ssh_export deploy_env_hook_do "deploy_env_${_service_group_lower}_hook_do"
     do_ssh_server_invoke deploy_env_down_do
     local _status="${?}"
     set -e
@@ -1174,7 +1098,7 @@ define_common_deploy_env() {
       local _status=${?}
       do_print_trace "# ${_compose_cmd} down exited with status ${_status}"
       [ ${_status} ] && {
-        ENV_BACKUP_NAME=".backup.$(date +'%Y%m%d.%H%M%S')"
+        ENV_BACKUP_DIR="${SERVICE_GROUP_DIR:?}/env-backup/$(date +'%Y%m%d.%H%M%S')"
         deploy_env_backup_do
         ${_cp} "${_compose_yml_new:?}" "${_compose_yml_old:?}"
         [ -f "${_compose_env_new:?}" ] && ${_cp} "${_compose_env_new:?}" "${_compose_env_old:?}"
@@ -1182,7 +1106,7 @@ define_common_deploy_env() {
     fi
   }
   deploy_env_diff_do() {
-    do_print_trace "# ${FUNCNAME[0]}"
+    do_print_info "$(do_stack_trace)"
     do_diff "${_compose_env_old}" "${_compose_env_new}"
     ENV_CHANGED="${?}"
     do_diff "${_compose_yml_old}" "${_compose_yml_new}"
@@ -1207,22 +1131,22 @@ define_common_deploy_env() {
   }
   deploy_env_backup_do() {
     do_print_trace "# ${FUNCNAME[0]}"
-    cd "${SERVICE_GROUP_DIR:?}"
-    mkdir -p "./${ENV_BACKUP_NAME:?}"
-    local _path="./${_compose_yml_name:?}"
+    mkdir -p "${ENV_BACKUP_DIR:?}"
+    local _path="${_compose_yml_old:?}"
     [ ! -f "${_path}" ] && return
-    cp --preserve "${_path}" "${ENV_BACKUP_NAME}/${_compose_yml_name}"
-    local _path="./.env"
-    [ -f "${_path}" ] && cp --preserve "${_path}" "${ENV_BACKUP_NAME}/${_compose_env_name:?}"
-    find . -type l -ls >"./${ENV_BACKUP_NAME}/cd_version_linked"
+    cd "${SERVICE_GROUP_DIR:?}"
+    cp --preserve "${_path}" "${ENV_BACKUP_DIR}/${_compose_yml_name}"
+    local _path="${_compose_env_old:?}"
+    [ -f "${_path}" ] && cp --preserve "${_path}" "${ENV_BACKUP_DIR}/${_compose_env_name:?}"
+    find . -type l -ls >"${ENV_BACKUP_DIR}/cd_version_linked"
     backup_cd_version() {
       cd "${SERVICE_GROUP_DIR:?}"
-      echo "$(cat "${1}") -- ${1}" >>"./${ENV_BACKUP_NAME}/cd_version_all"
+      echo "$(cat "${1}") -- ${1}" >>"${ENV_BACKUP_DIR}/cd_version_all"
     }
     export -f backup_cd_version
     export SERVICE_GROUP_DIR
-    export ENV_BACKUP_NAME
-    touch "./${ENV_BACKUP_NAME}/cd_version_all"
+    export ENV_BACKUP_DIR
+    touch "${ENV_BACKUP_DIR}/cd_version_all"
     find "${SERVICE_GROUP_DIR}" -type f -name 'CD_VERSION' -exec bash -c 'backup_cd_version "$0"' {} \;
   }
 } # define_common_deploy_env
