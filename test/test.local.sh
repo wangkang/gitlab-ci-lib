@@ -45,3 +45,6 @@ test_diff
 shopt -s extglob
 test_globbing
 shopt -u extglob
+
+define_common_build
+do_build_ci_info 'temp.env'

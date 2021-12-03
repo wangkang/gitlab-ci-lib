@@ -106,6 +106,16 @@ define_util_core() {
     set -o pipefail
     return "${_status}"
   }
+  do_file_replace() {
+    local _path="${1}"
+    [ ! -f "${_path:?}" ] && {
+      echo "$(do_stack_trace): Not a file '${_path:?}'" >&2
+      return
+    }
+    for name in "${@:2}"; do
+      sed -i -e "s|#${name}|${!name}|g" "${_path}"
+    done
+  }
   do_write_file() {
     local _path="${1}"
     local _file_content="${2}"
@@ -604,27 +614,17 @@ define_common_init_ssh() {
   }
 }
 
-#===============================================================================
-
 define_common_build() {
   do_build_ci_info() {
     local _template_file="${1}"
-    local _sed='sed -i -e'
     do_print_info 'BUILD CI/CD INFO' "${_template_file:?}"
-    $_sed "s|#CD_ENVIRONMENT|${ENV_NAME:?}|g" "$_template_file"
-    $_sed "s|#CD_VERSION_TAG|${CD_VERSION_TAG:?}|g" "$_template_file"
-    $_sed "s|#CI_COMMIT_TAG|${CI_COMMIT_TAG}|g" "$_template_file"
-    $_sed "s|#CI_PIPELINE_ID|${CI_PIPELINE_ID}|g" "$_template_file"
-    $_sed "s|#CI_JOB_ID|${CI_JOB_ID}|g" "$_template_file"
-    $_sed "s|#CI_COMMIT_REF_NAME|${CI_COMMIT_REF_NAME}|g" "$_template_file"
-    $_sed "s|#CI_COMMIT_SHA|${CI_COMMIT_SHA}|g" "$_template_file"
-    $_sed "s|#CI_COMMIT_SHORT_SHA|${CI_COMMIT_SHORT_SHA}|g" "$_template_file"
-    $_sed "s|#CI_COMMIT_TITLE|${CI_COMMIT_TITLE}|g" "$_template_file"
+    # shellcheck disable=SC2034
+    local CD_ENVIRONMENT="${ENV_NAME:-none}"
+    do_file_replace "${_template_file}" CD_ENVIRONMENT CD_VERSION_TAG \
+      CI_COMMIT_TAG CI_PIPELINE_ID CI_JOB_ID CI_COMMIT_REF_NAME CI_COMMIT_SHA CI_COMMIT_SHORT_SHA
     do_print_info 'BUILD CI/CD INFO DONE'
   }
-} # define_common_build
-
-#===============================================================================
+}
 
 define_common_upload() {
   do_upload_cleanup_local() {
