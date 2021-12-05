@@ -30,7 +30,7 @@ verify_job_do() {
 
 #===============================================================================
 
-declare_init_common() {
+define_common_init() {
   do_func_invoke() {
     [ -n "${1}" ] && _func_name="${1}"
     if [[ $(type -t "${_func_name:?}") != function ]]; then
@@ -70,7 +70,7 @@ declare_init_common() {
   }
   do_print_section() {
     if [ -z "${LONG_LINE}" ]; then
-      LONG_LINE='===================================================================================================='
+      LONG_LINE='==============================================================================================='
     fi
     if [ $# -gt 0 ]; then
       printf '\033[1;36m%s %s\033[0m %s\n' "${1}" "${LONG_LINE:${#1}}" "$(date +'%Y-%m-%d %T %Z')"
@@ -92,7 +92,6 @@ declare_init_common() {
   _print_env_var() {
     do_print_dash_pair 'CI_COMMIT_REF_NAME' "${CI_COMMIT_REF_NAME}"
     do_print_dash_pair 'ENV_NAME' "${ENV_NAME:?}"
-    do_print_dash_pair 'GIT_CHECKOUT' "${GIT_CHECKOUT}"
   }
   _init_ci_tag() {
     [[ -z "${CI_COMMIT_TAG}" ]] && CI_COMMIT_TAG=${CI_COMMIT_SHORT_SHA}
@@ -123,36 +122,39 @@ declare_init_common() {
     VERSION_BUILDING="${CD_VERSION_TAG:?}_${CI_PIPELINE_ID:?}"
     do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING}"
   }
-}
+} # define_common_init
 
-declare_init_ssh_common() {
+#===============================================================================
+
+define_common_init_ssh() {
   do_ssh_add_user() {
-    _user_host="${ARG_SSH_USER:?}@${ARG_SSH_HOST:?}"
     do_print_info "SSH ADD USER $_user_host"
+    local _user_host="${ARG_SSH_USER:?}@${ARG_SSH_HOST:?}"
     if [ "$_user_host" = "${SSH_USER_HOST}" ]; then
-      do_print_info 'SSH ADD USER OK (is default)'
+      do_print_info 'SSH ADD USER OK (same as default user)'
       return
     fi
     [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && _ssh_add_known "${ARG_SSH_KNOWN_HOSTS}"
     [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
-    # shellcheck disable=SC2086
-    _uid=$(ssh ${SSH_DEBUG_OPTIONS} "$_user_host" 'id') && (
-      do_print_info "SSH ADD USER OK $_uid"
-    )
+    local _uid='-1'
+    local _ssh="ssh ${SSH_DEBUG_OPTIONS}"
+    _uid=$($_ssh "$_user_host" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
   }
   init_ssh_do() {
-    _pri_line=$(echo "${SSH_PRIVATE_KEY}" | tr -d '\n')
-    do_print_dash_pair 'Gitlab Custom Variables (ssh)'
-    do_print_dash_pair 'SSH_HOST' "${SSH_HOST}"
-    do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60} **"
-    do_print_dash_pair 'SSH_KNOWN_HOSTS' "${SSH_KNOWN_HOSTS:0:60} **"
-    _ssh_agent_init
-    _ssh_default_user
-  }
-  _ssh_default_user() {
+    local _pri_line
     if [[ -z "${SSH_USER}" && -n "${SSH_USER_PREFIX}" ]]; then
       SSH_USER="${SSH_USER_PREFIX}-${ENV_NAME:?}"
     fi
+    _pri_line=$(echo "${SSH_PRIVATE_KEY}" | tr -d '\n')
+    do_print_dash_pair 'Gitlab Custom Variables (ssh)'
+    do_print_dash_pair 'SSH_USER' "${SSH_USER}"
+    do_print_dash_pair 'SSH_HOST' "${SSH_HOST}"
+    do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60}**"
+    do_print_dash_pair 'SSH_KNOWN_HOSTS' "${SSH_KNOWN_HOSTS:0:60}**"
+    _ssh_agent_init
+    _ssh_add_user_default
+  }
+  _ssh_add_user_default() {
     ARG_SSH_USER=${SSH_USER:?}
     ARG_SSH_HOST="${SSH_HOST:?}"
     ARG_SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS:?}"
@@ -185,11 +187,11 @@ declare_init_ssh_common() {
     chmod 644 ~/'.ssh/known_hosts'
     chmod 700 ~/'.ssh'
   }
-}
+} # define_common_init_ssh
 
 #===============================================================================
 
-declare_build_common() {
+define_common_build() {
   do_build_ci_info() {
     [ -n "${1}" ] && _template_file="${1}"
     do_print_info 'BUILD CI/CD INFO' "${_template_file:?}"
@@ -204,14 +206,13 @@ declare_build_common() {
     sed -i -e "s|#CI_COMMIT_TITLE|${CI_COMMIT_TITLE}|g" "$_template_file"
     do_print_info 'BUILD CI/CD INFO DONE'
   }
-}
+} # define_common_build
 
 #===============================================================================
 
-declare_upload_common() {
+define_common_upload() {
   do_upload() {
-    _upload_init_ssh
-    UPLOAD_USER_HOST="${ARG_SSH_USER}@${ARG_SSH_HOST}"
+    _upload_ssh_add_user
     do_print_info 'UPLOAD SERVICE'
     [ -n "${1}" ] && SERVICE_NAME="${1}"
     [ -n "${2}" ] && SERVICE_GROUP="${2}"
@@ -220,10 +221,12 @@ declare_upload_common() {
     do_print_dash_pair 'SERVICE_GROUP' "${SERVICE_GROUP}"
     do_print_dash_pair 'SERVICE_NAME' "${SERVICE_NAME}"
     do_print_dash_pair 'RUNNER_USER_HOST' "${RUNNER_USER_HOST}"
-    do_print_dash_pair 'RUNNER_LOCAL_DIR' "${RUNNER_LOCAL_DIR}"
+    do_print_dash_pair 'RUNNER_LOCAL_DIR' "${RUNNER_LOCAL_DIR:?}"
     do_print_dash_pair 'UPLOAD_USER_HOST' "${UPLOAD_USER_HOST}"
     do_print_dash_pair 'UPLOAD_REMOTE_DIR' "${UPLOAD_REMOTE_DIR}"
-    find "${RUNNER_LOCAL_DIR:?}" -type f -exec ls -lhA {} +
+    find "${RUNNER_LOCAL_DIR}" -type d -exec chmod 770 {} +
+    find "${RUNNER_LOCAL_DIR}" -type f -exec chmod 660 {} +
+    find "${RUNNER_LOCAL_DIR}" -type f -exec ls -lhA {} +
     do_print_info 'UPLOAD   ' "$(date +'%T')"
     _ssh="ssh ${UPLOAD_USER_HOST}"
     _scp="scp -rpC -o StrictHostKeyChecking=no"
@@ -242,8 +245,7 @@ declare_upload_common() {
     $_ssh "cd ${UPLOAD_REMOTE_DIR}           \
       && touch ./CD_VERSION                  \
       && echo ${VERSION_BUILDING:?} > ./CD_VERSION \
-      && find . -type d -exec chmod 750 {} + \
-      && find . -type f -exec chmod 640 {} + \
+      && chmod 640 ./CD_VERSION \
       && find ${UPLOAD_REMOTE_DIR} -type f -exec ls -lhA {} + \
     " || (
       do_print_warn 'UPLOAD REMOTE JOB FAILED'
@@ -262,18 +264,19 @@ declare_upload_common() {
     do_print_info 'UPLOAD CLEANUP REMOTE'
     $_ssh "rm -rf '${UPLOAD_REMOTE_DIR:?}'/*" && do_print_info 'UPLOAD CLEANUP REMOTE OK'
   }
-  _upload_init_ssh() {
+  _upload_ssh_add_user() {
     ARG_SSH_USER="${UPLOAD_SSH_USER:=${SSH_USER:?}}"
     ARG_SSH_PRIVATE_KEY="${UPLOAD_SSH_PRIVATE_KEY:=${SSH_PRIVATE_KEY}}"
-    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
-    ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
+    ARG_SSH_HOST="${UPLOAD_SSH_HOST:=${SSH_HOST:?}}"
+    ARG_SSH_KNOWN_HOSTS="${UPLOAD_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
     do_ssh_add_user
+    UPLOAD_USER_HOST="${UPLOAD_SSH_USER}@${UPLOAD_SSH_HOST}"
   }
-}
+} # define_common_upload
 
 #===============================================================================
 
-declare_service_common() {
+define_common_service() {
   do_on_jumper_host() {
     if [ -n "${1}" ]; then do_on_jumper_host_1="${1}"; fi
     # shellcheck disable=SC2029
@@ -310,7 +313,7 @@ declare_service_common() {
     do_trace \'*** Currently deployed version:\'
     cat \'${SERVICE_DIR:?}/CD_VERSION\'
     do_trace \'*** Recent deployment log\'
-    tail -n5 \'${SERVICE_DIR}/CD_VERSION_LOG\'
+    tail -10 \'${SERVICE_DIR}/CD_VERSION_LOG\'
     if [ 1 = \$($_container_cmd ps -a | grep \'${SERVICE_NAME}\' | wc -l || echo 0) ]; then
       do_trace \'*** Container State:\'
       $_container_cmd inspect --type=container --format=\'{{json .State}}\' \'${SERVICE_NAME}\'
@@ -322,38 +325,48 @@ declare_service_common() {
     do_print_dash_pair 'Required Arguments'
     do_print_dash_pair 'SERVICE_NAME' "${SERVICE_NAME:?}"
     do_print_dash_pair 'SERVICE_GROUP' "${SERVICE_GROUP:?}"
-    _service_init_user_host
-    _service_init_ssh
-    JUMPER_USER_HOST="${ARG_SSH_USER}@${ARG_SSH_HOST}"
-    UPLOAD_SSH_USER="${UPLOAD_SSH_USER:=${ARG_SSH_USER:-${SSH_USER:?}}}"
+    _service_ssh_user_host
+    _service_ssh_add_user_jumper
     do_print_dash_pair 'Common Variables'
-    SERVICE_USER_HOST="${SERVICE_USER:?}@${SERVICE_HOST:?}"
     SERVICE_GROUP_DIR="/home/${SERVICE_USER}/${SERVICE_GROUP}"
     SERVICE_DIR="${SERVICE_GROUP_DIR}/${SERVICE_NAME}"
-    SERVICE_LOCATION="${SERVICE_USER_HOST}:${SERVICE_DIR}"
+    SERVICE_LOCATION="${SERVICE_USER_HOST:?}:${SERVICE_DIR}"
     do_print_dash_pair 'SERVICE_LOCATION' "${SERVICE_LOCATION}"
     SERVICE_UPLOAD_DIR="/home/${UPLOAD_SSH_USER:?}/${SERVICE_GROUP}/${SERVICE_NAME}-${CD_VERSION_TAG:?}"
-    UPLOAD_LOCATION="${JUMPER_USER_HOST}:${SERVICE_UPLOAD_DIR}"
+    UPLOAD_LOCATION="${UPLOAD_SSH_USER}@${JUMPER_SSH_HOST}:${SERVICE_UPLOAD_DIR}"
     do_print_dash_pair 'UPLOAD_LOCATION' "${UPLOAD_LOCATION}"
     [ '' = "${CONTAINER_WORK_DIR}" ] && CONTAINER_WORK_DIR="/home/${SERVICE_USER}"
     _service_reset_status
     _service_check_version
   }
-  _service_init_user_host() {
-    ENV_SUFFIX_UPPER="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
-    _user_var_name="SERVICE_USER${ENV_SUFFIX_UPPER:?}"
-    SERVICE_USER="${SERVICE_USER:-${SERVICE_SSH_USER:-${!_user_var_name}}}"
+  _service_ssh_user_host() {
+    local _prefix_grp
+    local _suffix_env
+    local _var_name1
+    local _var_name2
+    local _var_name3
+    _prefix_grp="$(echo "${SERVICE_GROUP:?}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')_"
+    _suffix_env="_$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
+    _var_name1="${_prefix_grp}SSH_USER$_suffix_env"
+    _var_name2="${_prefix_grp}SSH_USER"
+    _var_name3="SERVICE_SSH_USER$_suffix_env"
+    SERVICE_USER="${SERVICE_SSH_USER:-${!_var_name1:-${!_var_name2:-${!_var_name3}}}}"
     do_print_dash_pair 'SERVICE_USER' "${SERVICE_USER}"
-    _host_var_name="SERVICE_HOST${ENV_SUFFIX_UPPER:?}"
-    SERVICE_HOST="${SERVICE_HOST:-${SERVICE_SSH_HOST:-${!_host_var_name}}}"
+    _var_name1="${_prefix_grp}SSH_HOST$_suffix_env"
+    _var_name2="${_prefix_grp}SSH_HOST"
+    _var_name3="SERVICE_SSH_HOST$_suffix_env"
+    SERVICE_HOST="${SERVICE_SSH_HOST:-${!_var_name1:-${!_var_name2:-${!_var_name3}}}}"
     do_print_dash_pair 'SERVICE_HOST' "${SERVICE_HOST}"
+    SERVICE_USER_HOST="${SERVICE_USER:?}@${SERVICE_HOST:?}"
   }
-  _service_init_ssh() {
+  _service_ssh_add_user_jumper() {
     ARG_SSH_USER="${JUMPER_SSH_USER:=${SSH_USER:?}}"
     ARG_SSH_PRIVATE_KEY="${JUMPER_SSH_PRIVATE_KEY:-${SSH_PRIVATE_KEY}}"
     ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
-    ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:-${SSH_KNOWN_HOSTS}}"
+    ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
     do_ssh_add_user
+    JUMPER_USER_HOST="${JUMPER_SSH_USER}@${JUMPER_SSH_HOST}"
+    UPLOAD_SSH_USER="${UPLOAD_SSH_USER:=${JUMPER_SSH_USER:-${SSH_USER:?}}}"
   }
   _service_reset_status() {
     do_print_dash_pair 'Runtime Variables'
@@ -367,8 +380,11 @@ declare_service_common() {
   }
   _service_check_version() {
     _cd_version_file=${SERVICE_UPLOAD_DIR}/CD_VERSION
-    do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING:?}"
     VERSION_DEPLOYING=$(do_on_jumper_host "cat $_cd_version_file 2>/dev/null || echo 0")
+    if [ 'yes' = "${OPTION_FORCE_DEPLOY}" ]; then
+      VERSION_BUILDING="${VERSION_DEPLOYING:=1}"
+    fi
+    do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING:?}"
     do_print_dash_pair 'VERSION_DEPLOYING' "${VERSION_DEPLOYING}"
     VERSION_RUNNING=$(do_on_deploy_host "$_container_cmd exec ${SERVICE_NAME} \
     cat ${CONTAINER_WORK_DIR:?}/CD_VERSION 2>/dev/null || echo 0")
@@ -387,11 +403,11 @@ declare_service_common() {
       do_print_info "Service '${SERVICE_NAME}-${VERSION_BUILDING}' is already running"
     fi
   }
-} # declare_service_common
+} # define_common_service
 
 #===============================================================================
 
-declare_verify_common() {
+define_common_verify() {
   do_verify() {
     do_print_info 'VERIFY SERVICE'
     [ -n "${1}" ] && SERVICE_NAME="${1}"
@@ -410,22 +426,48 @@ declare_verify_common() {
   }
 }
 
-declare_deploy_common() {
+define_common_deploy() {
   do_deploy() {
     do_print_info 'DEPLOY SERVICE'
     SERVICE_NAME="${1:-${SERVICE_NAME:?}}"
     SERVICE_GROUP="${2:-${SERVICE_GROUP:?}}"
+    SERVICE_NAME_LOWER="$(echo "${SERVICE_NAME:?}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
     service_common_do
     if [ "${VERSION_BUILDING:?}" != "${VERSION_DEPLOYING:?}" ]; then
       do_print_info 'DEPLOY SERVICE REJECTED' "# package version is not ${VERSION_BUILDING}"
       return
     fi
+    do_func_invoke deploy_patch_hook_do
+    do_func_invoke "deploy_${SERVICE_NAME_LOWER}_patch_hook_do"
     _deploy_init
     _deploy_env
     _deploy_service
-    _deploy_write_log
     do_print_info 'DEPLOY SERVICE DONE'
     do_inspect_container
+  }
+  do_deploy_vault_env() {
+    do_on_deploy_host "
+    curl -s -X \'GET\' \'${REAL_VAULT_URL:?}\' -H \'X-Vault-Token: ${REAL_VAULT_TOKEN:?}\' \
+    | jq -r \'.data | to_entries[] | \"\(.key)=\(.value)\"\' 2>/dev/null >> ${DEPLOY_ENV_SRC:?} "
+  }
+  do_deploy_patch() {
+    local _dir_name=${1:?}
+    local _service_dir="${SERVICE_GROUP:?}/${SERVICE_NAME:?}/${_dir_name}"
+    local _local_dir="${CI_PROJECT_DIR:?}/${_service_dir}"
+    if [ ! -d "$_local_dir" ]; then
+      do_print_warn "'$_local_dir' is not a directory"
+      return
+    fi
+    local _scp="scp -rpC -o StrictHostKeyChecking=no"
+    local _remote_dir="${UPLOAD_LOCATION}/${_dir_name}"
+    do_on_jumper_host "mkdir -p ${_remote_dir}"
+    do_print_info 'UPLOAD PATCH FROM' "${_local_dir}/*"
+    do_print_info 'UPLOAD PATCH TO' "${_remote_dir}/"
+    if ! $_scp "${_local_dir}"/* "${_remote_dir}/"; then
+      do_print_warn 'UPLOAD PATCH FAILED'
+    else
+      do_print_info 'UPLOAD PATCH OK' "$(date +'%T')"
+    fi
   }
   _deploy_init() {
     if [ 'yes' = "${IS_PODMAN_HOST}" ]; then
@@ -437,7 +479,7 @@ declare_deploy_common() {
       _compose_yml_name='docker-compose.yml'
       _compose_cmd="docker-compose -f $_compose_yml_name --compatibility"
     fi
-    _scp="scp -Cr -o StrictHostKeyChecking=no"
+    _scp="scp -rpC -o StrictHostKeyChecking=no"
     SERVICE_DEPLOY_DIR="${SERVICE_DIR}-${CD_VERSION_TAG:?}"
     DEPLOY_ENV_SRC="${SERVICE_DEPLOY_DIR}/env/$_compose_env_name"
     DEPLOY_YML_SRC="${SERVICE_DEPLOY_DIR}/env/$_compose_yml_name"
@@ -453,6 +495,13 @@ declare_deploy_common() {
     local _u_ssh="ssh ${JUMPER_USER_HOST:?}"
     local _d_ssh="ssh ${SERVICE_USER_HOST:?}"
     CONTAINER_VERSION_MOUNT="- ./${SERVICE_NAME}/CD_VERSION:\${CONTAINER_WORK_DIR}/CD_VERSION:ro"
+    CONTAINER_ENTRYPOINT_MOUNT="- ./${SERVICE_NAME}/bin/${SERVICE_NAME}.sh:/usr/local/bin/${SERVICE_NAME}:ro"
+    local _suffix_env
+    _suffix_env="$(echo "${ENV_NAME:?}" | tr '[:lower:]' '[:upper:]')"
+    _var_name="VAULT_URL_${_suffix_env}"
+    REAL_VAULT_URL="${!_var_name:-${VAULT_URL:-'#'}}/${SERVICE_GROUP:?}"
+    _var_name="VAULT_TOKEN_${_suffix_env}"
+    REAL_VAULT_TOKEN="${!_var_name:-${VAULT_TOKEN:-'*'}}"
     $_u_ssh "
     ${DECLARE_DO_TRACE}
     if [ ! -d '$_local_dir' ]; then
@@ -471,13 +520,18 @@ declare_deploy_common() {
         sed -i -e \'s|#DEPLOY_ENV_NAME|${ENV_NAME:?}|g\'              ${DEPLOY_ENV_SRC}
         sed -i -e \"s|#DEPLOY_HOST_IP|\$_eth0_ipv4|g\"                ${DEPLOY_ENV_SRC}
         sed -i -e \'s|#CONTAINER_WORK_DIR|${CONTAINER_WORK_DIR:?}|g\' ${DEPLOY_ENV_SRC}
+        sed -i -e \'s|#VAULT_URL|${REAL_VAULT_URL:?}|g\'              ${DEPLOY_ENV_SRC}
+        sed -i -e \'s|#VAULT_TOKEN|${REAL_VAULT_TOKEN:?}|g\'          ${DEPLOY_ENV_SRC}
       )
       [ -f \'${DEPLOY_YML_SRC}\' ] && (
         sed -i -e \'s|#CONTAINER_VERSION_MOUNT|${CONTAINER_VERSION_MOUNT:?}|g\' ${DEPLOY_YML_SRC}
+        sed -i -e \'s|#CONTAINER_ENTRYPOINT_MOUNT|${CONTAINER_ENTRYPOINT_MOUNT:?}|g\' ${DEPLOY_YML_SRC}
       )
       do_trace \'# find $_remote_dir\'
       find \'$_remote_dir\' -type f -exec ls -lhA {} +
     ' "
+    do_func_invoke deploy_env_hook_do
+    do_func_invoke "deploy_${SERVICE_NAME_LOWER}_env_hook_do"
   }
   _deploy_env_diff() {
     DECLARE_DO_DIFF="do_diff() {                                         \
@@ -523,6 +577,7 @@ declare_deploy_common() {
     local _local_dir="${SERVICE_UPLOAD_DIR}"
     local _remote_dir="${SERVICE_DEPLOY_DIR}"
     local _container_stop_cmd="$_container_cmd stop"
+    local _rsync_cmd='rsync -avr'
     $_u_ssh "
     $_d_ssh $'
       ${DECLARE_DO_TRACE}
@@ -557,17 +612,24 @@ declare_deploy_common() {
     ${DECLARE_DO_TRACE}
     do_trace '# find $_local_dir'
     cd '$_local_dir'
-    mv '$_local_dir/env' '$_local_dir/.env'
     find '$_local_dir' -type f -exec ls -lhA {} +
-    $_scp '$_local_dir/'* \"${SERVICE_USER_HOST:?}:$_remote_dir/\"
+    do_trace '# $_rsync_cmd --exclude env/* $_local_dir/ ${SERVICE_USER_HOST:?}:$_remote_dir'
+    $_rsync_cmd --exclude 'env/*' '$_local_dir/' '${SERVICE_USER_HOST:?}:$_remote_dir'
     $_d_ssh $'
       ${DECLARE_DO_TRACE}
       ${DECLARE_DO_CHECK_CONTAINER}
+      [ -d \'$_remote_dir/native\' ] && chmod 600 \'$_remote_dir/native/\'*
+      [ -d \'$_remote_dir/bin\' ] && chmod 700 \'$_remote_dir/bin/\'*
+      [ -d \'$_remote_dir/env\' ] && chmod 600 \'$_remote_dir/env/\'*
+      [ -d \'$_remote_dir/etc\' ] && chmod 600 \'$_remote_dir/etc/\'*
+      [ -d \'$_remote_dir/lib\' ] && chmod 600 \'$_remote_dir/lib/\'*
+      [ -d \'$_remote_dir/log\' ] && chmod 640 \'$_remote_dir/log/\'*
+      [ -d \'$_remote_dir/log\' ] && chmod 750 \'$_remote_dir/log\'
+      [ -d \'$_remote_dir/tmp\' ] && chmod 750 \'$_remote_dir/tmp\'
       do_trace \'# find $_remote_dir\'
       find    \'$_remote_dir\' -type f -exec ls -lhA {} +
       ln -sfn \'$_remote_dir\' \'$_remote_dir/CD_LINK\'
       mv -Tf  \'$_remote_dir/CD_LINK\' ${SERVICE_DIR:?} && (
-        [ -d \'$_remote_dir/bin\' ] && chmod u+x \'$_remote_dir/bin/\'*
         do_check_container
         if [[ \'yes\' != \'${ENV_CHANGED}\' && \'yes\' = \"\$_container_created\" ]]; then
           do_trace \'# $_container_cmd start\'
@@ -575,30 +637,34 @@ declare_deploy_common() {
           do_trace \"# $_container_cmd start exited with status \$?\"
         else
           cd $_remote_dir/..
-          mv $_remote_dir/env/$_compose_yml_name ./
-          mv $_remote_dir/env/$_compose_env_name ./.env
+          cp --preserve $_remote_dir/env/$_compose_env_name ./.env
+          cp --preserve $_remote_dir/env/$_compose_yml_name ./
           do_trace \'# $_compose_cmd up -d\'
           $_compose_cmd up -d
           do_trace \"# $_compose_cmd up -d exited with status \$?\"
         fi
       )
-    '
-    mv '$_local_dir/.env' '$_local_dir/env'
-    "
+    ' "
+    _deploy_write_log
   }
   _deploy_write_log() {
     do_print_info 'WRITE DEPLOY LOG'
-    _job_tag="${CI_JOB_STAGE} ${CI_JOB_NAME} ${CI_JOB_ID}"
+    local _now
     _now=$(date +'%Y-%m-%d %T %Z')
-    _log_line="[$_now] [${CI_COMMIT_SHORT_SHA}] [${CI_PIPELINE_ID}] [${CD_VERSION_TAG}] [$_job_tag]"
-    _log_file="${SERVICE_DIR:?}/CD_VERSION_LOG"
+    local _log_line="[$_now] [${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_ID} ${CI_JOB_ID}]"
+    local _log_file="${SERVICE_DIR:?}/CD_VERSION_LOG"
     do_on_deploy_host "
-      touch $_log_file              && \
-      echo $_log_line >> $_log_file && \
-      tail -n30 $_log_file          && \
-      chmod 640 $_log_file
+      if [ ! -f $_log_file ]; then
+        touch $_log_file && chmod 640 $_log_file
+      fi
+      echo $_log_line >> $_log_file
+      tail -3 $_log_file
+      _lines=\$(cat $_log_file | wc -l)
+      if [ \$_lines -gt 200 ]; then
+        echo \"\$(tail -200 $_log_file)\" > $_log_file
+      fi
     " && do_print_info 'WRITE DEPLOY LOG OK'
   }
-} # declare_deploy_common
+} # define_common_deploy
 
 #===============================================================================

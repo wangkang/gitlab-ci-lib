@@ -1,0 +1,180 @@
+#==============================================================================
+# Assuming that we have these deployment environments:
+# 'develop', 'testing', 'staging', 'production'.
+# Git Flow is recommended, so we are facing these git branches:
+# 'master', 'develop', 'release/*', 'hotfix/*', 'feature/*'.
+#==============================================================================
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2"
+
+.rules01: &rules_if_develop $CI_COMMIT_REF_NAME == '--'
+.rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/
+
+.image01: &image_for_deploy { image: 'maven:3.8.1-openjdk-11' }
+.image02: &image_for_build  { image: 'maven:3.8.1-openjdk-11' }
+.cache01: &build_runner_cache
+  <<: *image_for_build
+  cache: { policy: pull-push, untracked: false, paths: [ ".m2/" ],
+           key: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_TITLE}", }
+
+#===============================================================================
+
+.custom_layer_functions:
+  - &init_custom_func   source .gitlab-ci.sh 2>/dev/null; do_func_invoke 'define_custom_init'
+  - &build_custom_func  do_func_invoke 'define_custom_build'
+  - &upload_custom_func do_func_invoke 'define_custom_upload'
+  - &deploy_custom_func do_func_invoke 'define_custom_deploy'
+  - &verify_custom_func do_func_invoke 'define_custom_verify'
+
+.common_layer_functions:
+  - &init_common_func |
+    source <(curl -s https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/1.0/.gitlab-ci.lib.sh);
+    define_common_init
+  - &init_ssh_common_func define_common_init_ssh
+  - &build_common_func    define_common_build
+  - &upload_common_func   define_common_upload
+  - &deploy_common_func   define_common_service; define_common_deploy
+  - &verify_common_func   define_common_service; define_common_verify
+
+#===============================================================================
+
+stages: [ plan, build, deploy, verify ]
+
+.build_only: &build_only
+  stage: build
+  <<: *build_runner_cache
+  before_script:
+    - *init_common_func
+    - *init_custom_func
+    - *build_common_func
+    - *build_custom_func
+    - init_first_do
+  script:
+    - init_final_do
+    - build_job_do
+
+.build_then_upload: &build_then_upload
+  <<: *build_only
+  script:
+    - *init_ssh_common_func
+    - *upload_common_func
+    - *upload_custom_func
+    - init_ssh_do
+    - init_final_do
+    - build_job_do
+    - upload_job_do
+
+.deploy_with_ssh: &deploy_with_ssh
+  <<: *image_for_deploy
+  before_script:
+    - *init_common_func
+    - *init_ssh_common_func
+    - *init_custom_func
+    - init_first_do
+    - init_ssh_do
+
+.deploy_to_env: &deploy_to_env
+  stage: deploy
+  <<: *deploy_with_ssh
+  script:
+    - *deploy_common_func
+    - *deploy_custom_func
+    - init_final_do
+    - deploy_job_do
+  allow_failure: true
+
+.deploy_verify_env: &deploy_verify_env
+  stage: verify
+  <<: *deploy_with_ssh
+  script:
+    - *verify_common_func
+    - *verify_custom_func
+    - init_final_do
+    - verify_job_do
+  allow_failure: true
+
+#===============================================================================
+
+.begin:
+  <<: *image_for_build
+  stage: plan
+  variables: { ENV_NAME: none, GIT_CHECKOUT: "false", CI_DEBUG_TRACE: "false" }
+  before_script:
+    - *init_common_func
+    - *init_custom_func
+    - init_first_do
+  script:
+    - init_final_do
+  when: always
+
+#===============================================================================
+
+package:
+  variables: { ENV_NAME: none, GIT_CHECKOUT: "true" }
+  <<: *build_only
+  rules:
+    - { when: always, if: $CI_COMMIT_REF_NAME =~ /^feature.*$/ }
+    - { when: always, if: $CI_COMMIT_REF_NAME =~ /^hotfix.*$/ }
+    - { when: manual, if: $CI_COMMIT_REF_SLUG == 'master' }
+
+#===============================================================================
+
+for-develop:
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
+  <<: *build_then_upload
+  rules: [ { if: *rules_if_develop, when: on_success } ]
+to-develop:
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
+  <<: *deploy_to_env
+  rules: [ { if: *rules_if_develop, when: on_success } ]
+env-develop:
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
+  <<: *deploy_verify_env
+  rules: [ { if: *rules_if_develop, when: on_success } ]
+
+#===============================================================================
+
+for-testing:
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
+  <<: *build_then_upload
+  rules: [ { if: *rules_if_testing, when: on_success } ]
+to-testing:
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
+  <<: *deploy_to_env
+  rules: [ { if: *rules_if_testing, when: on_success } ]
+env-testing:
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
+  <<: *deploy_verify_env
+  rules: [ { if: *rules_if_testing, when: on_success } ]
+
+#===============================================================================
+
+for-staging:
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
+  <<: *build_then_upload
+  only: [ tags ]
+  except: [ /^(!master).+$/ ]
+  when: on_success
+to-staging:
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
+  <<: *deploy_to_env
+  only: [ tags ]
+  except: [ /^(!master).+$/ ]
+  when: on_success
+env-staging:
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
+  <<: *deploy_verify_env
+  only: [ tags ]
+  except: [ /^(!master).+$/ ]
+  when: on_success
+
+#===============================================================================
+
+for-production:
+  variables: { ENV_NAME: production, GIT_CHECKOUT: "true" }
+  <<: *build_then_upload
+  stage: build
+  only: [ tags ]
+  except: [ /^(!master).+$/ ]
+  when: manual
