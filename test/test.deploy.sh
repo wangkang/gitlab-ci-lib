@@ -1,35 +1,28 @@
 #!/bin/bash
-set -eo pipefail
-source "../.gitlab-ci.lib.sh"
+source "test.ssh.init.sh"
+#==============================================================================
 
-#==============================================================================
-export CUSTOMER='customer'
 export ENV_NAME='testing'
-export VAULT_URL_GITLAB="${VAULT_URL:?}/gitlab/dummy-service/${CUSTOMER}"
-define_common_init
-define_common_init_ssh
-#==============================================================================
-init_ssh_do
 do_ssh_add_user_jumper
 do_ssh_reset_service
-#==============================================================================
-export OPTION_DEBUG='no'
+
 export CD_VERSION_TAG='1.0.x'
-export VERSION_BUILDING='1.0.x_13140'
+export VERSION_BUILDING='1.0.x_13172'
 define_common_deploy
+
 #==============================================================================
 
 deploy_env_hook_do() {
   do_print_warn "$(do_stack_trace)"
-  #do_deploy_vault_env "${SERVICE_GROUP:?}/${CUSTOMER:?}-env"
-  #do_deploy_vault_env "${SERVICE_NAME:?}/${CUSTOMER:?}-env"
 }
 deploy_env_dummy_hook_do() {
   do_print_warn "$(do_stack_trace)"
 }
-deploy_dummy_alpine_patch_hook_do() {
+deploy_dummy_alpine_hook_do() {
   do_print_warn "$(do_stack_trace)"
-  #do_deploy_vault_patch
+  do_deploy_vault_patch "test.patch.yml"
+  do_ssh_export do_print_colorful do_print_warn do_dir_make SERVICE_DEPLOY_DIR
+  do_ssh_server_invoke do_dir_clean $'${SERVICE_DEPLOY_DIR}/tmp' make
 }
 deploy_custom_do() {
   do_deploy_env_down 'dummy'

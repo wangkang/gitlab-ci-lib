@@ -1,21 +1,13 @@
 #!/bin/bash
-set -eo pipefail
-source "../.gitlab-ci.lib.sh"
+source "test.ssh.init.sh"
+#==============================================================================
 
-#==============================================================================
-export VAULT_URL_GITLAB="${VAULT_URL:?}/gitlab/dummy-service/customer"
-define_common_init
-#==============================================================================
-define_common_init_ssh
-init_ssh_do
 do_ssh_add_user_upload
 do_ssh_add_user_jumper
 do_ssh_reset_service
-declare -rx OPTION_DEBUG='no'
-#==============================================================================
 
 do_print_hello() {
-  do_print_info "$(whoami)@$(hostname):" "${1}"
+  do_print_trace "$(do_stack_trace)" "${1}"
 }
 do_print_hello_alice() {
   for i in "${@}"; do
@@ -23,8 +15,9 @@ do_print_hello_alice() {
   done
   do_print_hello 'alice'
 }
-
 _statement="
+  $(declare -f do_stack_trace)
+  $(declare -f do_print_trace)
   $(declare -f do_print_hello_alice)
   do_print_hello_alice
 "
@@ -42,7 +35,7 @@ echo '----------------------------------------'
   wait
 }
 echo '----------------------------------------'
-do_ssh_export do_print_colorful do_print_info do_print_hello
+do_ssh_export do_print_colorful do_print_trace do_print_hello
 {
   (do_ssh_jumper_exec "${_statement}") &
   (do_ssh_server_exec "${_statement}") &
@@ -59,10 +52,13 @@ echo '----------------------------------------'
 echo '----------------------------------------'
 do_ssh_export_clear
 
-do_ssh_export do_print_colorful do_print_warn do_dir_make do_dir_clean
-do_here do_ssh_upload_exec <<\-----
-  do_dir_clean abc
-  do_dir_make  abc
+export OPTION_DEBUG='no'
+do_ssh_export do_print_colorful do_print_warn do_print_trace
+do_ssh_export do_print_hello do_print_hello_alice do_dir_make do_dir_list
+do_ssh_exec_here "${UPLOAD_USER_HOST:?}" "${SERVICE_USER_HOST:?}" <<\------
+  do_print_hello_alice
+  do_dir_make "abc"
+  do_dir_list "abc"
   pwd
-  echo "$(whoami)"
------
+------
+do_ssh_export_clear

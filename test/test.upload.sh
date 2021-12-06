@@ -1,20 +1,11 @@
 #!/bin/bash
-set -eo pipefail
-source "../.gitlab-ci.lib.sh"
+source "test.ssh.init.sh"
+#==============================================================================
 
-#==============================================================================
-export CUSTOMER='customer'
-export ENV_NAME='testing'
-export VAULT_URL_GITLAB="${VAULT_URL:?}/gitlab/dummy-service/${CUSTOMER}"
-define_common_init
-define_common_init_ssh
-#==============================================================================
-init_ssh_do
-do_ssh_add_user_upload
-#==============================================================================
-export OPTION_DEBUG='no'
 export CD_VERSION_TAG='0'
 export CI_PROJECT_DIR="${PWD}"
+
+do_ssh_add_user_upload
 define_common_upload
 
 upload_custom_do() {

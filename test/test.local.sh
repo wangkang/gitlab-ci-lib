@@ -35,7 +35,7 @@ test_diff() {
 shopt -s extglob
 test_globbing() {
   printf '%s\n' !(abc)
-  echo !(abc) | do_here do_print_info
+  echo !(temp-*) | do_here do_print_info "${PWD}/"
 }
 shopt -u extglob
 
