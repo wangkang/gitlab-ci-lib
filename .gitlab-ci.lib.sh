@@ -396,6 +396,10 @@ define_util_vault() {
     if do_vault_check; then
       eval "${_func_name:?}" "${*:2}"
     else
+      if [ "$(type -t do_ssh_export)" != function ]; then
+        do_print_info "$(do_stack_trace) 'do_ssh_export' is absent" >&2
+        return
+      fi
       do_vault_with_ssh "${_func_name:?}" "${*:2}"
       do_ssh_export_clear
     fi
@@ -696,7 +700,7 @@ define_common_upload() {
     local _file_path="${2}"
     local _file_path="${CI_PROJECT_DIR:?}/${_file_path:?}"
     ls -lh "${_file_path}"
-    do_print_info "$(file "${_file_path}")"
+    [ -f '/usr/bin/file' ] && do_print_info "$(/usr/bin/file "${_file_path}")"
     mkdir -p "${RUNNER_LOCAL_DIR:?}/${_file_type:?}"
     $_link "${_file_path}" "${RUNNER_LOCAL_DIR}/${_file_type}/"
   }
@@ -720,8 +724,8 @@ define_common_upload() {
   upload_cd_version_file_do() {
     local _dir="${1}"
     local _version="${2}"
-    cd "${_dir:?}" && touch ./CD_VERSION &&
-      echo "${_version:?}" >./CD_VERSION && chmod 640 ./CD_VERSION
+    local _path="${_dir:?}/CD_VERSION"
+    touch "${_path}" && echo "${_version:?}" >"${_path}" && chmod 640 "${_path}"
   }
 } # define_common_upload
 
@@ -1010,7 +1014,7 @@ define_common_deploy_env() {
     do_ssh_reset_service
     do_print_dash_pair 'SERVICE_GROUP' "${SERVICE_GROUP:?}"
     do_print_dash_pair 'UPLOAD_USER' "${UPLOAD_USER:?}"
-    SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP}"
+    SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP:?}"
     ENV_DEPLOY_DIR="${SERVICE_GROUP_DIR}/env-deploy"
     local _local_dir="/home/${UPLOAD_USER}/${SERVICE_GROUP}/env-deploy"
     local _remote_dir="${ENV_DEPLOY_DIR}"
@@ -1022,6 +1026,7 @@ define_common_deploy_env() {
     do_print_info 'DEPLOY SERVICE GROUP UP' "[${1}]"
     SERVICE_GROUP="${1:-${SERVICE_GROUP}}"
     SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP:?}"
+    ENV_DEPLOY_DIR="${SERVICE_GROUP_DIR}/env-deploy"
     do_ssh_reset_service
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful deploy_env_reset_do
