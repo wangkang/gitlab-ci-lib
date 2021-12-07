@@ -673,6 +673,33 @@ define_common_upload() {
     upload_scp_do "${_local_dir}" "${_remote_dir}"
     do_print_info 'UPLOAD SERVICE ENV DONE' "[${1}]"
   }
+  do_upload_copy_dir() {
+    local _link='cp --preserve --recursive --link'
+    local service=${1}
+    local service_group=${2}
+    local _dir="${CI_PROJECT_DIR:?}/deploy/${service_group:?}"
+    local _env_dir="${_dir}/env-deploy"
+    local _service_dir="${_dir}/${service:?}"
+    set +e
+    [ -d "${_env_dir}" ] && {
+      $_link "${_env_dir}/"* "${RUNNER_LOCAL_DIR}/"
+      do_upload_env "${service_group}"
+    }
+    [ -d "${_service_dir}" ] && {
+      $_link "${_service_dir}/"* "${RUNNER_LOCAL_DIR:?}/"
+    }
+    set -e
+  }
+  do_upload_copy_file() {
+    local _link='cp --preserve --recursive --link'
+    local _file_type="${1}"
+    local _file_path="${2}"
+    local _file_path="${CI_PROJECT_DIR:?}/${_file_path:?}"
+    ls -lh "${_file_path}"
+    do_print_info "$(file "${_file_path}")"
+    mkdir -p "${RUNNER_LOCAL_DIR:?}/${_file_type:?}"
+    $_link "${_file_path}" "${RUNNER_LOCAL_DIR}/${_file_type}/"
+  }
   upload_scp_do() {
     local _local_dir="${1}"
     local _remote_dir="${2}"
