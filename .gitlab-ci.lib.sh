@@ -320,7 +320,7 @@ define_util_ssh() {
     [ -z "${SERVICE_VAULT_TOKEN}" ] && SERVICE_VAULT_TOKEN="${VAULT_TOKEN}"
     SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL_RUNTIME')"
     [ -z "${SERVICE_VAULT_URL}" ] && SERVICE_VAULT_URL="${VAULT_URL}"
-    SERVICE_VAULT_URL="${SERVICE_VAULT_URL}/runtime"
+    SERVICE_VAULT_URL="${SERVICE_VAULT_URL}/${CUSTOMER:?}-${ENV_NAME:?}/data/service"
     do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
   }
   _service_vault_variable() {
@@ -365,23 +365,23 @@ define_util_vault() {
   do_vault_fetch_env_file_local() {
     local _url="${1}"
     local _token="${2}"
-    local _jq_cmd='.data | to_entries[] | "\(.key)=\(.value)"'
+    local _jq_cmd='.data.data | to_entries[] | "\(.key)=\(.value)"'
     do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
   }
   do_vault_fetch_bash_env() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
   do_vault_fetch_bash_env_local() {
     local _url="${1}"
     local _token="${2}"
-    local _jq_cmd=$'.data | to_entries[] | "export \(.key)=$\'\(.value)\'"'
+    local _jq_cmd=$'.data.data | to_entries[] | "export \(.key)=$\'\(.value)\'"'
     do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
   }
-  do_vault_fetch_bash_file() { do_vault_fetch_with_key "${@}" 'BASH_FILE'; }
+  do_vault_fetch_bash_file() { do_vault_fetch_with_key "${@}" 'BASH'; }
   do_vault_fetch_with_key() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
   do_vault_fetch_with_key_local() {
     local _url="${1}"
     local _token="${2}"
     local _key="${3}"
-    local _jq_cmd=".data.${_key}"
+    local _jq_cmd=".data.data.${_key:?}"
     do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
   }
   do_vault_with_ssh() {
@@ -548,16 +548,18 @@ define_common_init() {
       do_print_info "- Abort vault injection: 'CUSTOMER' is absent"
       return
     fi
-    _reset_injection_vault_url "${CUSTOMER}-env"
+    _reset_injection_vault_url "${CI_PROJECT_NAME}/gitlab-env"
+    #OPTION_DEBUG='yes'
     do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_env'
+    #OPTION_DEBUG='no'
   }
   init_inject_ci_bash_do() {
-    local _path="${VAULT_PATH_CI:-"${CUSTOMER}-ci"}"
+    local _path="${VAULT_PATH_CI:-"${CI_PROJECT_NAME}/gitlab-ci"}"
     _reset_injection_vault_url "${_path}"
     do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_file'
   }
   init_inject_cd_bash_do() {
-    local _path="${VAULT_PATH_CD:-"${CUSTOMER}-cd"}"
+    local _path="${VAULT_PATH_CD:-"${CI_PROJECT_NAME}/gitlab-cd"}"
     _reset_injection_vault_url "${_path}"
     do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_file'
   }
@@ -580,7 +582,7 @@ define_common_init() {
       do_print_info "- Abort vault injection: 'VAULT_TOKEN' is absent"
       return
     fi
-    VAULT_URL_GITLAB="${VAULT_URL}/gitlab/${CI_PROJECT_NAME}"
+    VAULT_URL_GITLAB="${VAULT_URL}/${CUSTOMER:?}-${ENV_NAME:?}/data/project"
     INJECTION_VAULT_URL="${VAULT_URL_GITLAB}/${_path:?}"
   }
   _init_env_var() {
