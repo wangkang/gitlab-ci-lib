@@ -3,7 +3,8 @@ set -eo pipefail
 
 declare -rx GITLAB_API_URL="${GITLAB_API_URL:?}"
 declare -rx HEADER_TOKEN="PRIVATE-TOKEN: ${GITLAB_API_TOKEN:?}"
-declare -rx RESERVED_PAGES=${GITLAB_PIPELINE_RESERVED_PAGES:-15}
+declare -rx PER_PAGE=${GITLAB_PIPELINE_RESERVED_PAGES:-15}
+declare -rx RESERVED_PAGES=${GITLAB_PIPELINE_RESERVED_PAGES:-10}
 
 cleanup_ci_pipeline() {
   local _url="${GITLAB_API_URL}/projects?per_page=100&sort=asc"
@@ -15,13 +16,14 @@ cleanup_ci_pipeline() {
 
 delete_pipeline_project() {
   local _project_id="${1}"
-  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?sort=asc"
+  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?sort=asc&per_page=${PER_PAGE:?}"
   while IFS=':' read -r key value; do
     value=${value##+([[:space:]])}
     value=${value%%+([[:space:]])}
-    case "$key" in
-    'X-Total') _total_item="$value" ;;
-    'X-Total-Pages') _total_page="$value" ;;
+    key=$(echo "${key}" | tr '[:upper:]' '[:lower:]')
+    case "${key}" in
+    'x-total') _total_item="$value" ;;
+    'x-total-pages') _total_page="$value" ;;
     *) ;;
     esac
   done < <(curl -s --header "${HEADER_TOKEN:?}" -I -X HEAD "${_url}")
@@ -34,10 +36,10 @@ delete_pipeline_project() {
 delete_pipeline_page() {
   local _project_id="${1}"
   local _page="${2}"
-  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?page=${_page:?}"
+  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?sort=asc&per_page=${PER_PAGE:?}&page=${_page:?}"
   local _array=()
   while IFS='' read -r _pipeline_id; do
-    _array+=("$_line")
+    _array+=("${_pipeline_id}")
   done < <(curl -s --header "${HEADER_TOKEN:?}" "$_url" | jq -r '.[] .id')
   for _pipeline_id in "${_array[@]}"; do
     local _pipeline_url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines/${_pipeline_id}"
