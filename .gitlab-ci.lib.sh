@@ -311,24 +311,10 @@ define_util_ssh() {
     do_print_dash_pair 'SERVICE_USER' "${SERVICE_USER}"
     SERVICE_HOST="$(_service_ssh_variable 'SERVICE_SSH_HOST')"
     do_print_dash_pair 'SERVICE_HOST' "${SERVICE_HOST}"
-    SERVICE_USER_HOST="${SERVICE_USER:?}@${SERVICE_HOST:?}"
+    set +e
+    SERVICE_USER_HOST="${SERVICE_USER}@${SERVICE_HOST}"
     [ -z "${CONTAINER_WORK_DIR}" ] && CONTAINER_WORK_DIR="/home/${SERVICE_USER}"
-    _service_vault_reset
-  }
-  _service_vault_reset() {
-    SERVICE_VAULT_TOKEN="$(_service_vault_variable 'VAULT_TOKEN_RUNTIME')"
-    [ -z "${SERVICE_VAULT_TOKEN}" ] && SERVICE_VAULT_TOKEN="${VAULT_TOKEN}"
-    SERVICE_VAULT_URL="$(_service_vault_variable 'VAULT_URL_RUNTIME')"
-    [ -z "${SERVICE_VAULT_URL}" ] && SERVICE_VAULT_URL="${VAULT_URL}"
-    SERVICE_VAULT_URL="${SERVICE_VAULT_URL}/${CUSTOMER:?}-${ENV_NAME:?}/data/service"
-    do_print_dash_pair 'SERVICE_VAULT_URL' "${SERVICE_VAULT_URL}"
-  }
-  _service_vault_variable() {
-    local _prefix=''
-    [ -n "${CUSTOMER}" ] && _prefix="$(echo "${CUSTOMER}" | tr '[:lower:]' '[:upper:]')_"
-    local _suffix=''
-    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
-    do_print_variable "${_prefix//-/_}" "${1:?}" "${_suffix}"
+    set -e
   }
   _service_ssh_variable() {
     local _prefix=''
@@ -361,6 +347,79 @@ define_util_ssh() {
 }
 
 define_util_vault() {
+  do_vault_service_login() {
+    if [ -n "${SERVICE_VAULT_TOKEN}" ]; then return; fi
+    init_service_vault_do
+    if [ -z "${SERVICE_VAULT_URL}" ]; then
+      do_print_info "- Abort vault login: '(SERVICE_)VAULT_URL' is absent"
+      return
+    fi
+    if [ -z "${SERVICE_VAULT_USER}" ]; then
+      do_print_info "- Abort vault login: '(SERVICE_)VAULT_USER' is absent"
+      return
+    fi
+    if [ -z "${SERVICE_VAULT_PASS}" ]; then
+      do_print_info "- Abort vault login: '(SERVICE_)VAULT_PASS' is absent"
+      return
+    fi
+    do_print_info "# do_vault_service_login url:'${SERVICE_VAULT_URL}' user:'${SERVICE_VAULT_USER}'"
+    SERVICE_VAULT_TOKEN=$(do_vault_login "${SERVICE_VAULT_URL}" "${SERVICE_VAULT_USER}" "${SERVICE_VAULT_PASS}")
+  }
+  do_vault_project_login() {
+    if [ -n "${PROJECT_VAULT_TOKEN}" ]; then return; fi
+    init_project_vault_do
+    if [ -z "${PROJECT_VAULT_URL}" ]; then
+      do_print_info "- Abort vault login: '(PROJECT_)VAULT_URL' is absent"
+      return
+    fi
+    if [ -z "${PROJECT_VAULT_USER}" ]; then
+      do_print_info "- Abort vault login: '(PROJECT_)VAULT_USER' is absent"
+      return
+    fi
+    if [ -z "${PROJECT_VAULT_PASS}" ]; then
+      do_print_info "- Abort vault login: '(PROJECT_)VAULT_PASS' is absent"
+      return
+    fi
+    do_print_info "# do_vault_project_login url:'${PROJECT_VAULT_URL}' user:'${PROJECT_VAULT_USER}'"
+    PROJECT_VAULT_TOKEN=$(do_vault_login "${PROJECT_VAULT_URL}" "${PROJECT_VAULT_USER}" "${PROJECT_VAULT_PASS}")
+  }
+  do_vault_service_env_file() {
+    do_print_info "$(do_stack_trace)"
+    local _path="${1}"
+    [ -z "${_path}" ] && _path="${SERVICE_GROUP:?}-env"
+    do_vault_service_login
+    if [ -z "${SERVICE_VAULT_TOKEN}" ]; then
+      do_print_warn "- do_vault_service_env_fetch is aborted : user is not login"
+      return
+    fi
+    local _url="${SERVICE_VAULT_URL:?}/${SERVICE_VAULT_PATH:?}/${_path}"
+    do_vault_fetch_env_file "${_url}" "${SERVICE_VAULT_TOKEN}"
+  }
+  do_vault_service_patch_file() {
+    do_print_info "$(do_stack_trace)"
+    local _path="${1}"
+    local _file_name="${2}"
+    local _content_key="${_file_name:?}"
+    _content_key="${_content_key//./_}"
+    _content_key="${_content_key//-/_}"
+    do_vault_service_login
+    if [ -z "${SERVICE_VAULT_TOKEN}" ]; then
+      do_print_warn "- do_vault_service_patch_file is aborted : user is not login"
+      return
+    fi
+    local _url="${SERVICE_VAULT_URL:?}/${SERVICE_VAULT_PATH:?}/${_path:?}"
+    do_vault_fetch_with_key "${_url}" "${SERVICE_VAULT_TOKEN:?}" "${_content_key}"
+  }
+  do_vault_login() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
+  do_vault_login_local() {
+    local _url="${1}"
+    local _user="${2}"
+    local _pass="${3}"
+    local _jq_cmd='.auth .client_token'
+    _url="${_url:?}/auth/userpass/login/${_user:?}"
+    _json="{\"password\": \"${_pass:?}\"}"
+    jq -r "${_jq_cmd}" <<<"$(curl --max-time 5 -s --request POST "${_url}" --data "${_json}")"
+  }
   do_vault_fetch_env_file() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
   do_vault_fetch_env_file_local() {
     local _url="${1}"
@@ -416,8 +475,8 @@ define_util_vault() {
     local _jq_cmd="${3}"
     local _value
     set +e
-    do_print_trace "$(do_stack_trace)" >&2
-    do_print_trace "- fetch from vault: ${_url:?} .data.${_key:-"*"}" >&2
+    #do_print_trace "$(do_stack_trace)" >&2
+    do_print_trace "- fetch from vault: ${_url:?} ${_jq_cmd:?}" >&2
     if ! do_vault_check; then return; fi
     _value=$(jq -r "${_jq_cmd:?}" <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")")
     local _status="${?}"
@@ -435,12 +494,17 @@ define_util_vault() {
       do_print_warn "- Function '${_func}' is undefined"
       return
     fi
+    do_vault_project_login
+    if [ -z "${PROJECT_VAULT_TOKEN}" ]; then
+      do_print_info "- do_vault_bash_inject is aborted: user is not login"
+      return
+    fi
     local _command
-    _command="$(eval "${_func}" "${_url}" "${VAULT_TOKEN:?}")"
+    _command="$(eval "${_func}" "${_url}" "${PROJECT_VAULT_TOKEN:?}")"
     do_print_debug "${_command}"
     local _line_count
     _line_count=$(echo "${_command}" | wc -l | xargs)
-    do_print_info "- fetch from vault: ${_line_count} lines"
+    do_print_info "- fetch from vault ${_line_count} line(s)"
     eval "${_command}"
   }
 }
@@ -485,9 +549,9 @@ define_util_print() {
       local _n=$((${#FUNCNAME[@]} - 2))
       local _stack
       _stack="$(whoami)@$(hostname) --> $(echo -n "${FUNCNAME[*]:1:${_n}} " | tac -s ' ')"
-      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN --' "${_stack}"
-      printf "%s\n" "${@}" | awk '{printf "#%3d| \033[0;35m%s\033[0m\n", NR, $0}'
-      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG END ----' "${_stack}"
+      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN --' "${_stack}" >&2
+      printf "%s\n" "${@}" | awk '{printf "#%3d| \033[0;35m%s\033[0m\n", NR, $0}' >&2
+      printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG END ----' "${_stack}" >&2
     fi
   }
   do_print_dash_pair() {
@@ -543,15 +607,32 @@ define_common_init() {
     do_func_invoke 'init_final_custom_do'
     do_print_section 'INIT ALL DONE!' && echo ''
   }
+  init_project_vault_do() {
+    local _suffix
+    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
+    PROJECT_VAULT_USER="$(do_print_variable 'PROJECT' 'VAULT_USER' "${_suffix}")"
+    PROJECT_VAULT_PASS="$(do_print_variable 'PROJECT' 'VAULT_PASS' "${_suffix}")"
+    PROJECT_VAULT_URL="$(do_print_variable 'PROJECT' 'VAULT_URL' "${_suffix}")"
+    PROJECT_VAULT_PATH="${CUSTOMER:?}-${ENV_NAME:?}/data/project"
+  }
+  init_service_vault_do() {
+    local _suffix
+    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
+    SERVICE_VAULT_USER="$(do_print_variable 'SERVICE' 'VAULT_USER' "${_suffix}")"
+    SERVICE_VAULT_PASS="$(do_print_variable 'SERVICE' 'VAULT_PASS' "${_suffix}")"
+    SERVICE_VAULT_URL="$(do_print_variable 'SERVICE' 'VAULT_URL' "${_suffix}")"
+    SERVICE_VAULT_PATH="${CUSTOMER:?}-${ENV_NAME:?}/data/service"
+  }
   init_inject_env_bash_do() {
     if [ -z "${CUSTOMER}" ]; then
       do_print_info "- Abort vault injection: 'CUSTOMER' is absent"
       return
     fi
-    _reset_injection_vault_url "${CI_PROJECT_NAME}/gitlab-env"
-    #OPTION_DEBUG='yes'
+    local _path="${VAULT_PATH_ENV:-"${CI_PROJECT_NAME}/gitlab-env"}"
+    _reset_injection_vault_url "${_path}"
+    #export OPTION_DEBUG='yes'
     do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_env'
-    #OPTION_DEBUG='no'
+    #export OPTION_DEBUG='no'
   }
   init_inject_ci_bash_do() {
     local _path="${VAULT_PATH_CI:-"${CI_PROJECT_NAME}/gitlab-ci"}"
@@ -565,25 +646,10 @@ define_common_init() {
   }
   _reset_injection_vault_url() {
     local _path="${1}"
-    if [ -n "${VAULT_URL_GITLAB}" ]; then
-      INJECTION_VAULT_URL="${VAULT_URL_GITLAB}/${_path:?}"
-      return
+    do_vault_project_login
+    if [ -n "${PROJECT_VAULT_URL}" ]; then
+      INJECTION_VAULT_URL="${PROJECT_VAULT_URL}/${PROJECT_VAULT_PATH:?}/${_path:?}"
     fi
-    INJECTION_VAULT_URL=''
-    if [ -z "${CI_PROJECT_NAME}" ]; then
-      do_print_info "- Abort vault injection: 'CI_PROJECT_NAME' is absent"
-      return
-    fi
-    if [ -z "${VAULT_URL}" ]; then
-      do_print_info "- Abort vault injection: 'VAULT_URL' is absent"
-      return
-    fi
-    if [ -z "${VAULT_TOKEN}" ]; then
-      do_print_info "- Abort vault injection: 'VAULT_TOKEN' is absent"
-      return
-    fi
-    VAULT_URL_GITLAB="${VAULT_URL}/${CUSTOMER:?}-${ENV_NAME:?}/data/project"
-    INJECTION_VAULT_URL="${VAULT_URL_GITLAB}/${_path:?}"
   }
   _init_env_var() {
     CUSTOMER=${CUSTOMER:-${CUSTOMER_NAME:-none}}
@@ -891,13 +957,9 @@ define_common_deploy() {
     do_print_info 'DEPLOY SERVICE DONE'
   }
   do_deploy_vault_env() {
-    do_print_info "# ${FUNCNAME[*]}"
-    local _path="${1}"
+    do_print_info "$(do_stack_trace)"
     local _code
-    [ -z "${_path}" ] && _path="${SERVICE_GROUP:?}/${CUSTOMER:?}-env"
-    local _url="${SERVICE_VAULT_URL:?}/${_path}"
-    do_print_info "- fetch from vault: ${_url}"
-    _code="$(do_vault_fetch_env_file "${_url}" "${SERVICE_VAULT_TOKEN:?}")"
+    _code=$(do_vault_service_env_fetch "${1}")
     local _line_count
     _line_count=$(echo "${_code}" | wc -l | xargs)
     do_print_info "- fetch from vault: ${_line_count} lines"
@@ -905,22 +967,17 @@ define_common_deploy() {
   }
   do_deploy_vault_patch() {
     do_print_info "$(do_stack_trace)"
-    local _file_path="${1}"
-    local _type="${2:-etc}"
-    local _content_key="${_file_path:?}"
-    _content_key="${_content_key//./_}"
-    _content_key="${_content_key//-/_}"
-    local _url="${VAULT_URL}/gitlab/${CI_PROJECT_NAME:?}/${CUSTOMER:?}-${_type}"
-    local _remote_dir="${SERVICE_UPLOAD_DIR:?}/${_type}"
-    local _remote_path="${_remote_dir}/${_file_path}"
-    do_print_info "- fetch from ${_url} ## ${_content_key:?}"
-    do_print_info "- fetch to ${UPLOAD_USER}@${JUMPER_SSH_HOST}:${_remote_path}"
+    local _vault_path="${1}"
+    local _file_name="${2}"
+    local _type="${3:-etc}"
     local _file_content
-    _file_content="$(do_vault_fetch_with_key "${_url}" "${VAULT_TOKEN:?}" "${_content_key}")"
+    _file_content="$(do_vault_service_patch_file "${_vault_path:?}-${_type}" "${_file_name:?}")"
     if [ -z "${_file_content}" ]; then
       do_print_warn '- fetched nothing'
       return 0
     fi
+    local _remote_path="${SERVICE_UPLOAD_DIR:?}/${_type}/${_file_name}"
+    do_print_info "- fetch to ${UPLOAD_USER}@${JUMPER_SSH_HOST}:${_remote_path}"
     do_deploy_write_file "${_remote_path}" "${_file_content}"
   }
   do_deploy_write_file() {
@@ -1001,7 +1058,7 @@ define_common_deploy() {
       set -e
       case ${_status} in
       0) do_print_trace 'WRITE DEPLOY LOG OK' ;;
-      *) do_print_trace "WRITE DEPLOY LOG FAILED ${_status} (unknown status)" ;;
+      *) do_print_warn "WRITE DEPLOY LOG FAILED ${_status} (unknown status)" ;;
       esac
       do_ssh_export_clear
     }
@@ -1048,14 +1105,15 @@ define_common_deploy_env() {
     do_print_trace "$(do_stack_trace)"
     cd "${SERVICE_GROUP_DIR:?}"
     deploy_env_reset_do
-    do_print_trace "# ${_compose_cmd:?} up"
+    do_print_trace "# ${_compose_cmd:?} up -d"
     ${_compose_cmd} up -d
   }
   deploy_env_reset_do() {
     if ! command -v podman-compose &>/dev/null; then
       _compose_env_name='docker-compose.env'
       _compose_yml_name='docker-compose.yml'
-      _compose_cmd="docker-compose -f $_compose_yml_name --compatibility"
+      #_compose_cmd="docker-compose -f $_compose_yml_name --compatibility"
+      _compose_cmd="docker-compose"
     else
       _compose_env_name='container-compose.env'
       _compose_yml_name='container-compose.yml'
@@ -1109,7 +1167,9 @@ define_common_deploy_env() {
     do_ssh_export do_file_replace do_diff
     do_ssh_export deploy_env_reset_do deploy_env_diff_do deploy_env_replace_do deploy_env_backup_do
     do_ssh_export CUSTOMER ENV_NAME CONTAINER_WORK_DIR _remote_dir _service_group_lower
-    do_ssh_export SERVICE_VAULT_URL SERVICE_VAULT_TOKEN SERVICE_GROUP SERVICE_GROUP_DIR ENV_DEPLOY_DIR
+    do_ssh_export SERVICE_GROUP SERVICE_GROUP_DIR ENV_DEPLOY_DIR
+    init_service_vault_do
+    do_ssh_export SERVICE_VAULT_USER SERVICE_VAULT_PASS SERVICE_VAULT_URL SERVICE_VAULT_PATH
     local _func_name="deploy_env_hook_do"
     if [ "$(type -t "${_func_name}")" = 'function' ]; then
       do_ssh_export "${_func_name}"
@@ -1192,8 +1252,10 @@ define_common_deploy_env() {
     declare -x DEPLOY_HOST_IP='127.0.0.1'
     DEPLOY_HOST_IP=$(/usr/sbin/ifconfig eth0 | grep 'inet ' | awk '{print $2}')
     do_file_replace "${_path:?}" CONTAINER_WORK_DIR DEPLOY_CUSTOMER DEPLOY_HOST_IP DEPLOY_ENV_NAME
+    sed -i -e "s|#VAULT_USER|${SERVICE_VAULT_USER}|g" "${_path}"
+    sed -i -e "s|#VAULT_PASS|${SERVICE_VAULT_PASS}|g" "${_path}"
     sed -i -e "s|#VAULT_URL|${SERVICE_VAULT_URL}|g" "${_path}"
-    sed -i -e "s|#VAULT_TOKEN|${SERVICE_VAULT_TOKEN}|g" "${_path}"
+    sed -i -e "s|#VAULT_PATH|${SERVICE_VAULT_PATH}|g" "${_path}"
   }
   deploy_env_backup_do() {
     do_print_trace "# ${FUNCNAME[0]}"
