@@ -684,7 +684,7 @@ define_common_init() {
       IFS="${saved_ifs}"
     fi
     if [ -z "${CD_VERSION_TAG}" ]; then CD_VERSION_TAG='0.0.x'; fi
-    VERSION_BUILDING="${CD_VERSION_TAG:?}_${CI_PIPELINE_ID:?}"
+    VERSION_BUILDING="${CD_VERSION_TAG:?}_${CI_PIPELINE_IID:-CI_PIPELINE_ID:?}"
     do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING}"
   }
 } # define_common_init
@@ -714,7 +714,7 @@ define_common_build() {
     # shellcheck disable=SC2034
     local CD_ENVIRONMENT="${ENV_NAME:-none}"
     do_file_replace "${_template_file}" CD_ENVIRONMENT CD_VERSION_TAG \
-      CI_COMMIT_TAG CI_PIPELINE_ID CI_JOB_ID CI_COMMIT_REF_NAME CI_COMMIT_SHA CI_COMMIT_SHORT_SHA
+      CI_COMMIT_TAG CI_PIPELINE_IID CI_PIPELINE_ID CI_JOB_ID CI_COMMIT_REF_NAME CI_COMMIT_SHA CI_COMMIT_SHORT_SHA
     do_print_info 'BUILD CI/CD INFO DONE'
   }
 }
@@ -1006,7 +1006,7 @@ define_common_deploy() {
     fi
   }
   deploy_service_jumper_do() {
-    local _cd_log_line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_ID} ${CI_JOB_ID}]"
+    local _cd_log_line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_IID:-CI_PIPELINE_ID} ${CI_JOB_ID}]"
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful
     do_ssh_export do_dir_make do_dir_list do_dir_chmod do_dir_scp do_write_log_file
