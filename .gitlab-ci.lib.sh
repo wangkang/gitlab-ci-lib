@@ -514,7 +514,7 @@ define_util_print() {
     local _prefix="${1}"
     local _name="${2:?}"
     local _suffix="${3}"
-    local _name3="${_prefix}${_name}$_suffix"
+    local _name3="${_prefix}${_name}${_suffix}"
     local _name2="${_prefix}${_name}"
     local _name1="${_name}${_suffix}"
     local _name0="${_name}"
@@ -601,26 +601,27 @@ define_common_init() {
     do_print_section 'INIT ALL BEGIN'
     _init_env_var
     _init_version_tag
-    do_print_dash_pair
   }
   init_final_do() {
     do_func_invoke 'init_final_custom_do'
     do_print_section 'INIT ALL DONE!' && echo ''
   }
   init_project_vault_do() {
+    local _prefix='PROJECT_'
     local _suffix
     [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
-    PROJECT_VAULT_USER="$(do_print_variable 'PROJECT' 'VAULT_USER' "${_suffix}")"
-    PROJECT_VAULT_PASS="$(do_print_variable 'PROJECT' 'VAULT_PASS' "${_suffix}")"
-    PROJECT_VAULT_URL="$(do_print_variable 'PROJECT' 'VAULT_URL' "${_suffix}")"
+    PROJECT_VAULT_USER="$(do_print_variable "${_prefix}" 'VAULT_USER' "${_suffix}")"
+    PROJECT_VAULT_PASS="$(do_print_variable "${_prefix}" 'VAULT_PASS' "${_suffix}")"
+    PROJECT_VAULT_URL="$(do_print_variable "${_prefix}" 'VAULT_URL' "${_suffix}")"
     PROJECT_VAULT_PATH="${CUSTOMER:?}-${ENV_NAME:?}/data/project"
   }
   init_service_vault_do() {
+    local _prefix='SERVICE_'
     local _suffix
     [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
-    SERVICE_VAULT_USER="$(do_print_variable 'SERVICE' 'VAULT_USER' "${_suffix}")"
-    SERVICE_VAULT_PASS="$(do_print_variable 'SERVICE' 'VAULT_PASS' "${_suffix}")"
-    SERVICE_VAULT_URL="$(do_print_variable 'SERVICE' 'VAULT_URL' "${_suffix}")"
+    SERVICE_VAULT_USER="$(do_print_variable "${_prefix}" 'VAULT_USER' "${_suffix}")"
+    SERVICE_VAULT_PASS="$(do_print_variable "${_prefix}" 'VAULT_PASS' "${_suffix}")"
+    SERVICE_VAULT_URL="$(do_print_variable "${_prefix}" 'VAULT_URL' "${_suffix}")"
     SERVICE_VAULT_PATH="${CUSTOMER:?}-${ENV_NAME:?}/data/service"
   }
   init_inject_env_bash_do() {
