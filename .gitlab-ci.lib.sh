@@ -364,6 +364,10 @@ define_util_vault() {
     fi
     do_print_info "# do_vault_service_login url:'${SERVICE_VAULT_URL}' user:'${SERVICE_VAULT_USER}'"
     SERVICE_VAULT_TOKEN=$(do_vault_login "${SERVICE_VAULT_URL}" "${SERVICE_VAULT_USER}" "${SERVICE_VAULT_PASS}")
+    if [ -z "${SERVICE_VAULT_TOKEN}" ] || [ 'null' = "${SERVICE_VAULT_TOKEN}" ]; then
+      SERVICE_VAULT_TOKEN=''
+      do_print_warn "# do_vault_service_login failed" >&2
+    fi
   }
   do_vault_project_login() {
     if [ -n "${PROJECT_VAULT_TOKEN}" ]; then return; fi
@@ -382,16 +386,17 @@ define_util_vault() {
     fi
     do_print_info "# do_vault_project_login url:'${PROJECT_VAULT_URL}' user:'${PROJECT_VAULT_USER}'"
     PROJECT_VAULT_TOKEN=$(do_vault_login "${PROJECT_VAULT_URL}" "${PROJECT_VAULT_USER}" "${PROJECT_VAULT_PASS}")
+    if [ -z "${PROJECT_VAULT_TOKEN}" ] || [ 'null' = "${PROJECT_VAULT_TOKEN}" ]; then
+      PROJECT_VAULT_TOKEN=''
+      do_print_warn "- do_vault_project_login failed"
+    fi
   }
   do_vault_service_env_file() {
     do_print_info "$(do_stack_trace)"
     local _path="${1}"
     [ -z "${_path}" ] && _path="${SERVICE_GROUP:?}-env"
     do_vault_service_login
-    if [ -z "${SERVICE_VAULT_TOKEN}" ]; then
-      do_print_warn "- do_vault_service_env_fetch is aborted : user is not login"
-      return
-    fi
+    if [ -z "${SERVICE_VAULT_TOKEN}" ]; then return; fi
     local _url="${SERVICE_VAULT_URL:?}/${SERVICE_VAULT_PATH:?}/${_path}"
     do_vault_fetch_env_file "${_url}" "${SERVICE_VAULT_TOKEN}"
   }
@@ -403,10 +408,7 @@ define_util_vault() {
     _content_key="${_content_key//./_}"
     _content_key="${_content_key//-/_}"
     do_vault_service_login
-    if [ -z "${SERVICE_VAULT_TOKEN}" ]; then
-      do_print_warn "- do_vault_service_patch_file is aborted : user is not login"
-      return
-    fi
+    if [ -z "${SERVICE_VAULT_TOKEN}" ]; then return; fi
     local _url="${SERVICE_VAULT_URL:?}/${SERVICE_VAULT_PATH:?}/${_path:?}"
     do_vault_fetch_with_key "${_url}" "${SERVICE_VAULT_TOKEN:?}" "${_content_key}"
   }
@@ -415,7 +417,7 @@ define_util_vault() {
     local _url="${1}"
     local _user="${2}"
     local _pass="${3}"
-    local _jq_cmd='.auth .client_token'
+    local _jq_cmd='.auth.client_token'
     _url="${_url:?}/auth/userpass/login/${_user:?}"
     _json="{\"password\": \"${_pass:?}\"}"
     jq -r "${_jq_cmd}" <<<"$(curl --max-time 5 -s --request POST "${_url}" --data "${_json}")"
@@ -424,14 +426,14 @@ define_util_vault() {
   do_vault_fetch_env_file_local() {
     local _url="${1}"
     local _token="${2}"
-    local _jq_cmd='.data.data | to_entries[] | "\(.key)=\(.value)"'
+    local _jq_cmd='.data.data|select(.!=null)|to_entries[]|"\(.key)=\(.value)"'
     do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
   }
   do_vault_fetch_bash_env() { do_vault_with_ssh_or_local "${FUNCNAME[0]}" "${@}"; }
   do_vault_fetch_bash_env_local() {
     local _url="${1}"
     local _token="${2}"
-    local _jq_cmd=$'.data.data | to_entries[] | "export \(.key)=$\'\(.value)\'"'
+    local _jq_cmd=$'.data.data|select(.!=null)|to_entries[]|"export \(.key)=$\'\(.value)\'"'
     do_vault_fetch_local "${_url:?}" "${_token:?}" "${_jq_cmd}"
   }
   do_vault_fetch_bash_file() { do_vault_fetch_with_key "${@}" 'BASH'; }
@@ -476,7 +478,7 @@ define_util_vault() {
     local _value
     set +e
     #do_print_trace "$(do_stack_trace)" >&2
-    do_print_trace "- fetch from vault: ${_url:?} ${_jq_cmd:?}" >&2
+    do_print_trace "- fetch from ${_url:?} ${_jq_cmd:?}" >&2
     if ! do_vault_check; then return; fi
     _value=$(jq -r "${_jq_cmd:?}" <<<"$(curl --max-time 5 -s "${_url}" -H "X-Vault-Token: ${_token:?}")")
     local _status="${?}"
@@ -495,10 +497,7 @@ define_util_vault() {
       return
     fi
     do_vault_project_login
-    if [ -z "${PROJECT_VAULT_TOKEN}" ]; then
-      do_print_info "- do_vault_bash_inject is aborted: user is not login"
-      return
-    fi
+    if [ -z "${PROJECT_VAULT_TOKEN}" ]; then return; fi
     local _command
     _command="$(eval "${_func}" "${_url}" "${PROJECT_VAULT_TOKEN:?}")"
     do_print_debug "${_command}"
