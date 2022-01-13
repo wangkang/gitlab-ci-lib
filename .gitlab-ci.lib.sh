@@ -1112,8 +1112,7 @@ define_common_deploy_env() {
     if ! command -v podman-compose &>/dev/null; then
       _compose_env_name='docker-compose.env'
       _compose_yml_name='docker-compose.yml'
-      #_compose_cmd="docker-compose -f $_compose_yml_name --compatibility"
-      _compose_cmd="docker-compose"
+      _compose_cmd="docker-compose --compatibility"
     else
       _compose_env_name='container-compose.env'
       _compose_yml_name='container-compose.yml'
