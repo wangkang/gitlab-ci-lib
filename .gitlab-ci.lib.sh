@@ -840,6 +840,7 @@ define_common_service() {
     SERVICE_DEPLOY_DIR="${SERVICE_DIR}-${CD_VERSION_TAG}"
     UPLOAD_LOCATION="${UPLOAD_USER}@${JUMPER_SSH_HOST}:${SERVICE_UPLOAD_DIR}"
     do_print_dash_pair 'UPLOAD_LOCATION' "${UPLOAD_LOCATION}"
+    SERVICE_STOP_WAIT="${SERVICE_STOP_WAIT:-8}"
     _service_reset_status
     _service_check_version
   }
@@ -868,8 +869,10 @@ define_common_service() {
     do_print_trace "$(do_stack_trace)"
     local _service_name="${1}"
     local _container_cmd="${2}"
+    local _wait_seconds="${SERVICE_STOP_WAIT:-10}"
     if [ 1 = "$(${_container_cmd:?} ps -a | grep -c "${_service_name:?}" || echo 0)" ]; then
-      ${_container_cmd} stop "${_service_name}"
+      do_print_trace "# ${_container_cmd} stop --time ${_wait_seconds} ${_service_name}"
+      ${_container_cmd} stop --time "${_wait_seconds}" "${_service_name}"
       return ${?}
     fi
     return 0
@@ -1014,6 +1017,7 @@ define_common_deploy() {
     do_ssh_export do_ssh_invoke do_ssh_exec do_ssh_exec_chain do_ssh_export do_ssh_export_clear
     do_ssh_export service_container_stop_do
     do_ssh_export SERVICE_NAME SERVICE_USER_HOST SERVICE_UPLOAD_DIR SERVICE_DEPLOY_DIR SERVICE_DIR
+    do_ssh_export SERVICE_STOP_WAIT
     do_ssh_export _container_cmd _cd_log_line
     do_ssh_jumper_invoke deploy_service_do
     do_ssh_export_clear
@@ -1022,6 +1026,7 @@ define_common_deploy() {
     do_print_trace "$(do_stack_trace)"
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful
+    do_ssh_export SERVICE_STOP_WAIT
     do_ssh_invoke "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" \
       service_container_stop_do "'${SERVICE_NAME:?}'" "'${_container_cmd}'"
     local _status=${?}
