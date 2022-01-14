@@ -24,9 +24,10 @@ define_util_core() {
   }
   do_dir_list() {
     do_print_trace "$(do_stack_trace)" "$(date +'%T')"
+    do_print_trace "$(whoami)@$(hostname):${1}"
     local _dir="${1}"
-    [ ! -d "${_dir:?}" ] && { return; }
-    find "${_dir}" -type f -exec ls -lhA {} +
+    [ ! -d "${_dir:?}" ] && return
+    cd "${_dir}" && find '.' -type f -exec ls -lhA {} +
   }
   do_dir_make() {
     local _dir="${1}"
@@ -139,7 +140,7 @@ define_util_core() {
     local _lines
     _lines=$(wc -l <"${_path}" | xargs)
     [ "${_lines}" -gt 220 ] && tail -200 "${_path}" >"${_path}.tmp" && mv -f "${_path}.tmp" "${_path}"
-    do_print_trace "$(do_stack_trace) '${_path}' ${_lines} line(s)"
+    do_print_trace "$(whoami)@$(hostname):${_path} -- ${_lines} line(s)"
   }
 }
 
