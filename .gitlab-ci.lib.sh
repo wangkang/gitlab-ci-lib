@@ -138,8 +138,8 @@ define_util_core() {
     tail -3 "${_path}"
     local _lines
     _lines=$(wc -l <"${_path}" | xargs)
-    [ "${_lines}" -gt 220 ] && tail -200 "${_path}" >"${_path}.tmp" &&
-      mv -f "${_path}.tmp" "${_path}"
+    [ "${_lines}" -gt 220 ] && tail -200 "${_path}" >"${_path}.tmp" && mv -f "${_path}.tmp" "${_path}"
+    do_print_trace "$(do_stack_trace) '${_path}' ${_lines} line(s)"
   }
 }
 
@@ -1053,6 +1053,7 @@ define_common_deploy() {
       local _path="${SERVICE_DEPLOY_DIR:?}/CD_VERSION_LOG"
       do_ssh_export_clear
       do_ssh_export do_print_trace do_print_warn do_print_colorful
+      set +e
       do_ssh_invoke "$(do_ssh_exec_chain "${SERVICE_USER_HOST:?}")" do_write_log_file "'${_path}'" "'${_cd_log_line:?}'"
       local _status=${?}
       set -e
