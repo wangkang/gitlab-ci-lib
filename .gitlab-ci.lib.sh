@@ -1090,7 +1090,7 @@ define_common_deploy_env() {
   }
   do_deploy_env_up() {
     do_print_info 'DEPLOY SERVICE GROUP UP' "[${1}]"
-    SERVICE_GROUP="${1:-${SERVICE_GROUP}}"
+    SERVICE_GROUP="${1:-${SERVICE_GROUP:?}}"
     SERVICE_GROUP_DIR="/home/${SERVICE_USER:?}/${SERVICE_GROUP:?}"
     ENV_DEPLOY_DIR="${SERVICE_GROUP_DIR}/env-deploy"
     do_ssh_reset_service
