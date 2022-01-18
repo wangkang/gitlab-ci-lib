@@ -352,18 +352,18 @@ define_util_vault() {
     if [ -n "${SERVICE_VAULT_TOKEN}" ]; then return; fi
     init_service_vault_do
     if [ -z "${SERVICE_VAULT_URL}" ]; then
-      do_print_info "- Abort vault login: '(SERVICE_)VAULT_URL' is absent"
+      do_print_info "- Abort vault login: '(SERVICE_)VAULT_URL' is absent" >&2
       return
     fi
     if [ -z "${SERVICE_VAULT_USER}" ]; then
-      do_print_info "- Abort vault login: '(SERVICE_)VAULT_USER' is absent"
+      do_print_info "- Abort vault login: '(SERVICE_)VAULT_USER' is absent" >&2
       return
     fi
     if [ -z "${SERVICE_VAULT_PASS}" ]; then
-      do_print_info "- Abort vault login: '(SERVICE_)VAULT_PASS' is absent"
+      do_print_info "- Abort vault login: '(SERVICE_)VAULT_PASS' is absent" >&2
       return
     fi
-    do_print_info "# do_vault_service_login url:'${SERVICE_VAULT_URL}' user:'${SERVICE_VAULT_USER}'"
+    do_print_info "# do_vault_service_login url:'${SERVICE_VAULT_URL}' user:'${SERVICE_VAULT_USER}'" >&2
     SERVICE_VAULT_TOKEN=$(do_vault_login "${SERVICE_VAULT_URL}" "${SERVICE_VAULT_USER}" "${SERVICE_VAULT_PASS}")
     if [ -z "${SERVICE_VAULT_TOKEN}" ] || [ 'null' = "${SERVICE_VAULT_TOKEN}" ]; then
       SERVICE_VAULT_TOKEN=''
@@ -374,22 +374,22 @@ define_util_vault() {
     if [ -n "${PROJECT_VAULT_TOKEN}" ]; then return; fi
     init_project_vault_do
     if [ -z "${PROJECT_VAULT_URL}" ]; then
-      do_print_info "- Abort vault login: '(PROJECT_)VAULT_URL' is absent"
+      do_print_info "- Abort vault login: '(PROJECT_)VAULT_URL' is absent" >&2
       return
     fi
     if [ -z "${PROJECT_VAULT_USER}" ]; then
-      do_print_info "- Abort vault login: '(PROJECT_)VAULT_USER' is absent"
+      do_print_info "- Abort vault login: '(PROJECT_)VAULT_USER' is absent" >&2
       return
     fi
     if [ -z "${PROJECT_VAULT_PASS}" ]; then
-      do_print_info "- Abort vault login: '(PROJECT_)VAULT_PASS' is absent"
+      do_print_info "- Abort vault login: '(PROJECT_)VAULT_PASS' is absent" >&2
       return
     fi
-    do_print_info "# do_vault_project_login url:'${PROJECT_VAULT_URL}' user:'${PROJECT_VAULT_USER}'"
+    do_print_info "# do_vault_project_login url:'${PROJECT_VAULT_URL}' user:'${PROJECT_VAULT_USER}'" >&2
     PROJECT_VAULT_TOKEN=$(do_vault_login "${PROJECT_VAULT_URL}" "${PROJECT_VAULT_USER}" "${PROJECT_VAULT_PASS}")
     if [ -z "${PROJECT_VAULT_TOKEN}" ] || [ 'null' = "${PROJECT_VAULT_TOKEN}" ]; then
       PROJECT_VAULT_TOKEN=''
-      do_print_warn "- do_vault_project_login failed"
+      do_print_warn "- do_vault_project_login failed" >&2
     fi
   }
   do_vault_service_env_file() {
