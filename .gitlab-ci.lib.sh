@@ -402,7 +402,7 @@ define_util_vault() {
     do_vault_fetch_env_file "${_url}" "${SERVICE_VAULT_TOKEN}"
   }
   do_vault_service_patch_file() {
-    do_print_info "$(do_stack_trace)"
+    do_print_info "$(do_stack_trace)" >&2
     local _path="${1}"
     local _file_name="${2}"
     local _content_key="${_file_name:?}"
@@ -971,8 +971,8 @@ define_common_deploy() {
   }
   do_deploy_vault_patch() {
     do_print_info "$(do_stack_trace)"
-    local _vault_path="${1}"
-    local _file_name="${2}"
+    local _file_name="${1}"
+    local _vault_path="${2:-${SERVICE_NAME:?}}"
     local _type="${3:-etc}"
     local _file_content
     _file_content="$(do_vault_service_patch_file "${_vault_path:?}-${_type}" "${_file_name:?}")"
