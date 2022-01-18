@@ -1,5 +1,5 @@
-#!/bin/sh
-set -e
+#!/bin/bash
+set -eo pipefail
 do_vault_login() {
   if [ -n "${VAULT_TOKEN}" ]; then
     printf '%s' "${VAULT_TOKEN}"
@@ -56,7 +56,7 @@ do_vault_fetch() {
 }
 do_vault_export() {
   echo "# vault export path: '${1}' -- $(date)"
-  _jq_cmd='.data.data|select(.!=null)|to_entries[]|"export \(.key)=\"\(.value)\";"'
+  _jq_cmd=$'.data.data|select(.!=null)|to_entries[]|"export \(.key)=$\'\(.value)\';"'
   _code="$(do_vault_fetch "${1}" | jq -r "${_jq_cmd}")"
   echo "# vault export ${#_code} char(s)"
   if [ -n "${_code}" ]; then eval "${_code}"; fi

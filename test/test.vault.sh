@@ -1,5 +1,5 @@
-#!/bin/sh
-set -e
+#!/bin/bash
+set -eo pipefail
 
 export CUSTOMER="${VAULT_TEST_CUSTOMER:-missing}"
 export ENV_NAME='testing'
