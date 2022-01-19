@@ -625,8 +625,9 @@ define_common_init() {
     SERVICE_VAULT_PATH="${CUSTOMER:?}-${ENV_NAME:?}/data/service"
   }
   init_inject_env_bash_do() {
+    [ 'yes' = "${OPTION_VAULT_DISABLED}" ] && return 0
     if [ -z "${CUSTOMER}" ]; then
-      do_print_info "- Abort vault injection: 'CUSTOMER' is absent"
+      do_print_warn "- Abort vault injection: 'CUSTOMER' is absent"
       return
     fi
     local _path="${VAULT_PATH_ENV:-"${CI_PROJECT_NAME}/gitlab-env"}"
@@ -636,11 +637,13 @@ define_common_init() {
     #export OPTION_DEBUG='no'
   }
   init_inject_ci_bash_do() {
+    [ 'yes' = "${OPTION_VAULT_DISABLED}" ] && return 0
     local _path="${VAULT_PATH_CI:-"${CI_PROJECT_NAME}/gitlab-ci"}"
     _reset_injection_vault_url "${_path}"
     do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_file'
   }
   init_inject_cd_bash_do() {
+    [ 'yes' = "${OPTION_VAULT_DISABLED}" ] && return 0
     local _path="${VAULT_PATH_CD:-"${CI_PROJECT_NAME}/gitlab-cd"}"
     _reset_injection_vault_url "${_path}"
     do_vault_bash_inject "${INJECTION_VAULT_URL}" 'do_vault_fetch_bash_file'
@@ -653,8 +656,8 @@ define_common_init() {
     fi
   }
   _init_env_var() {
-    CUSTOMER=${CUSTOMER:-${CUSTOMER_NAME:-none}}
-    ENV_NAME=${ENV_NAME:-none}
+    [ -z "${CUSTOMER}" ] && CUSTOMER="${CUSTOMER_NAME:-none}"
+    [ -z "${ENV_NAME}" ] && ENV_NAME='none'
     do_print_dash_pair 'CUSTOMER' "${CUSTOMER}"
     do_print_dash_pair 'ENV_NAME' "${ENV_NAME}"
     do_print_dash_pair 'CI_COMMIT_REF_NAME' "${CI_COMMIT_REF_NAME}"
@@ -685,7 +688,7 @@ define_common_init() {
       IFS="${saved_ifs}"
     fi
     if [ -z "${CD_VERSION_TAG}" ]; then CD_VERSION_TAG='0.0.x'; fi
-    VERSION_BUILDING="${CD_VERSION_TAG:?}_${CI_PIPELINE_IID:-CI_PIPELINE_ID:?}"
+    VERSION_BUILDING="${CD_VERSION_TAG:?}_${CI_PIPELINE_IID:-${CI_PIPELINE_ID:?}}"
     do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING}"
   }
 } # define_common_init
