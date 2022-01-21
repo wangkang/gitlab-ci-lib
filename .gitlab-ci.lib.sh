@@ -504,7 +504,7 @@ define_util_vault() {
     do_print_debug "${_command}"
     local _line_count
     _line_count=$(echo "${_command}" | wc -l | xargs)
-    do_print_info "- fetch from vault ${_line_count} line(s)"
+    do_print_info "- fetch from vault - ${_line_count} line(s) - ${#_command} char(s)"
     eval "${_command}"
   }
 }
@@ -1113,6 +1113,9 @@ define_common_deploy_env() {
   }
   deploy_env_up_do() {
     do_print_trace "$(do_stack_trace)"
+    cd ~
+    [ -f '.bashrc' ] && source '.bashrc'
+    [ -f '.bash_profile' ] && source '.bash_profile'
     cd "${SERVICE_GROUP_DIR:?}"
     deploy_env_reset_do
     do_print_trace "# ${_compose_cmd:?} up -d"
