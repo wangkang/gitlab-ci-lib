@@ -117,11 +117,11 @@ for-develop:
   <<: *build_then_upload
   rules: [ { if: *rules_if_develop, when: on_success } ]
 to-develop:
-  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
   rules: [ { if: *rules_if_develop, when: on_success } ]
 env-develop:
-  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
   rules: [ { if: *rules_if_develop, when: on_success } ]
 
@@ -132,11 +132,11 @@ for-testing:
   <<: *build_then_upload
   rules: [ { if: *rules_if_testing, when: on_success } ]
 to-testing:
-  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
   rules: [ { if: *rules_if_testing, when: on_success } ]
 env-testing:
-  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
   rules: [ { if: *rules_if_testing, when: on_success } ]
 
@@ -149,13 +149,13 @@ for-staging:
   except: [ /^(!master).+$/ ]
   when: on_success
 to-staging:
-  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
   only: [ tags ]
   except: [ /^(!master).+$/ ]
   when: on_success
 env-staging:
-  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
   only: [ tags ]
   except: [ /^(!master).+$/ ]
