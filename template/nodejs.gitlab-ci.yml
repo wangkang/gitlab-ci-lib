@@ -7,15 +7,14 @@
 
 variables:
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
-  MAVEN_OPTS: "-Dmaven.repo.local=.m2"
 
-.image01: &image_for_deploy { image: 'maven:3.8.1-openjdk-11' }
-.image02: &image_for_build  { image: 'maven:3.8.1-openjdk-11' }
+.image01: &image_for_deploy { image: 'node:16.17' }
+.image02: &image_for_build  { image: 'node:16.17' }
 .cache01: &build_runner_cache
   <<: *image_for_build
   cache: {
     policy: pull-push, untracked: false, key: "${CACHE_KEY}",
-    paths: [ ".m2/" ] }
+    paths: [ "node_modules/" ] }
 
 .rules01: &rules_if_develop $CI_COMMIT_REF_NAME == 'develop'
 .rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/ || $CI_COMMIT_REF_NAME =~ /^hotfix\/.*$/
