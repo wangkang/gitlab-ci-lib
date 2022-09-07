@@ -59,15 +59,17 @@ define_util_core() {
     local _dir="${1}"
     [ ! -d "${_dir:?}" ] && return
     cd "${_dir}"
+    chmod o-r,o-w,o-x,g-w './'*
+    [ -d "./dist" ] && chmod 755 "./dist"
+    [ -d "./www" ] && chmod 755 "./www"
+    [ -d "./log" ] && chmod 750 "./log"
+    [ -d "./tmp" ] && chmod 750 "./tmp"
     [ -d "./bin" ] && chmod 700 "./bin/"*
     [ -d "./env" ] && chmod 600 "./env/"*
     [ -d "./etc" ] && chmod 600 "./etc/"*
     [ -d "./lib" ] && chmod 600 "./lib/"*
     [ -d "./log" ] && chmod 640 "./log/"*
-    [ -d "./log" ] && chmod 750 "./log"
-    [ -d "./tmp" ] && chmod 750 "./tmp"
     [ -d "./native" ] && chmod 600 "./native/"*
-    chmod o-r,o-w,o-x,g-w './'*
   }
   do_dir_scp() {
     local _local_dir="${1}"
