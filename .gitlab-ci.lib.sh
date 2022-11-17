@@ -7,7 +7,11 @@ set -eo pipefail
 define_util_core() {
   do_nothing() { :; }
   do_stack_trace() {
-    printf '%s --> %s' "$(whoami)@$(hostname)" "$(echo -n "${FUNCNAME[*]:1} " | tac -s ' ')"
+    if [ -z "$(command -v tac)" ]; then
+      printf '%s --> %s' "$(whoami)@$(hostname)" "$(echo -n "${FUNCNAME[*]:1} ")"
+    else
+      printf '%s --> %s' "$(whoami)@$(hostname)" "$(echo -n "${FUNCNAME[*]:1} " | tac -s ' ')"
+    fi
   }
   do_here() {
     local _func_name="${1}"
