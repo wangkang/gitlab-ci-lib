@@ -25,8 +25,10 @@ variables:
 
 .common_layer_functions:
   - &init_common_func |
-    . <(curl -s "https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${SELF_REF_NAME:=${CI_COMMIT_REF_NAME:?}}/.gitlab-ci.lib.sh");
+    SELF_LIB_URL="https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${SELF_REF_NAME:=${CI_COMMIT_REF_NAME:?}}/.gitlab-ci.lib.sh";
     echo 'SELF_REF_NAME' "${SELF_REF_NAME}";
+    echo 'SELF_LIB_URL'  "${SELF_LIB_URL}";
+    . <(curl -s "${SELF_LIB_URL}");
     define_common_init
   - &init_ssh_common_func define_common_init_ssh
   - &build_common_func    define_common_build

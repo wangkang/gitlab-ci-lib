@@ -6,6 +6,7 @@ define_custom_init() {
   }
   init_final_custom_do() {
     do_print_warn "$(do_stack_trace)" 'TODO ...'
+    env
   }
 }
 
