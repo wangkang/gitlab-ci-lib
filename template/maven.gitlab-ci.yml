@@ -26,7 +26,7 @@ variables:
 
 .common_layer_functions:
   - &init_common_func |
-    . <(curl -s https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/1.0/.gitlab-ci.lib.sh);
+    . <(curl -s "https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${SELF_REF_NAME:=${CI_COMMIT_REF_NAME:?}}/.gitlab-ci.lib.sh");
     define_common_init
   - &init_ssh_common_func define_common_init_ssh
   - &build_common_func    define_common_build
