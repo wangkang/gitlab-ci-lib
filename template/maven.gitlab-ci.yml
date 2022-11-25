@@ -6,6 +6,8 @@
 #==============================================================================
 
 variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  GIT_SUBMODULE_UPDATE_FLAGS: --jobs 3
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
   MAVEN_OPTS: "-Dmaven.repo.local=.m2"
 
