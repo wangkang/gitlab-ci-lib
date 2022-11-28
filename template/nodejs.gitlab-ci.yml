@@ -2,10 +2,12 @@
 # Assuming that we have these deployment environments:
 # 'develop', 'testing', 'staging', 'production'.
 # Git Flow is recommended, so we are facing these git branches:
-# 'master', 'develop', 'release/*', 'hotfix/*', 'feature/*'.
+# 'main|master', 'develop', 'release/*', 'hotfix/*', 'feature/*'.
 #==============================================================================
 
 variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  GIT_SUBMODULE_UPDATE_FLAGS: --jobs 3
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
 
 .image01: &image_for_deploy { image: 'node:16.17' }
@@ -23,7 +25,9 @@ variables:
 
 .common_layer_functions:
   - &init_common_func |
-    . <(curl -s https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/1.0/.gitlab-ci.lib.sh);
+    SELF_LIB_URL="${SELF_LIB_URL:=https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${CI_COMMIT_REF_NAME:?}/.gitlab-ci.lib.sh}";
+    echo 'SELF_LIB_URL' "${SELF_LIB_URL}";
+    . <(curl -s "${SELF_LIB_URL}");
     define_common_init
   - &init_ssh_common_func define_common_init_ssh
   - &build_common_func    define_common_build
@@ -109,7 +113,7 @@ package:
   <<: *build_only
   rules:
     - { when: always, if: $CI_COMMIT_REF_NAME =~ /^feature.*$/ }
-    - { when: manual, if: $CI_COMMIT_REF_SLUG == 'master' }
+    - { when: manual, if: $CI_COMMIT_REF_SLUG == 'main' || $CI_COMMIT_REF_SLUG == 'master' }
 
 #===============================================================================
 
@@ -147,19 +151,19 @@ for-staging:
   variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
   <<: *build_then_upload
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: on_success
 to-staging:
   variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: on_success
 env-staging:
   variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: on_success
 
 #===============================================================================
@@ -169,5 +173,5 @@ for-production:
   <<: *build_then_upload
   stage: build
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: manual

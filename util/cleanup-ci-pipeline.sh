@@ -18,8 +18,10 @@ delete_pipeline_project() {
   local _project_id="${1}"
   local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?sort=asc&per_page=${PER_PAGE:?}"
   while IFS=':' read -r key value; do
-    value=${value##+([[:space:]])}
-    value=${value%%+([[:space:]])}
+    # remove leading whitespace characters
+    value="${value#"${value%%[![:space:]]*}"}"
+    # remove trailing whitespace characters
+    value="${value%"${value##*[![:space:]]}"}"
     key=$(echo "${key}" | tr '[:upper:]' '[:lower:]')
     case "${key}" in
     'x-total') _total_item="$value" ;;
@@ -50,4 +52,5 @@ delete_pipeline_page() {
   delete_pipeline_project "${_project_id:?}"
 }
 
-cleanup_ci_pipeline
+# cleanup_ci_pipeline
+# delete_pipeline_project 47

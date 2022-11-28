@@ -7,7 +7,11 @@ set -eo pipefail
 define_util_core() {
   do_nothing() { :; }
   do_stack_trace() {
-    printf '%s --> %s' "$(whoami)@$(hostname)" "$(echo -n "${FUNCNAME[*]:1} " | tac -s ' ')"
+    if [ -z "$(command -v tac)" ]; then
+      printf '%s --> %s' "$(whoami)@$(hostname)" "$(echo -n "${FUNCNAME[*]:1} ")"
+    else
+      printf '%s --> %s' "$(whoami)@$(hostname)" "$(echo -n "${FUNCNAME[*]:1} " | tac -s ' ')"
+    fi
   }
   do_here() {
     local _func_name="${1}"
@@ -1299,25 +1303,27 @@ define_common_ci_job() {
   build_job_do() {
     do_print_section 'BUILD JOB BEGIN'
     do_func_invoke "build_custom_do"
+    do_func_invoke "build_${ENV_NAME:?}_do"
     do_print_section 'BUILD JOB DONE!' && echo ''
   }
   upload_job_do() {
     do_print_section 'UPLOAD JOB BEGIN'
-    do_ssh_add_user_upload
-    do_upload_cleanup_local
+    do_func_invoke "do_ssh_add_user_upload"
+    do_func_invoke "do_upload_cleanup_local"
     do_func_invoke "upload_custom_do"
+    do_func_invoke "upload_${ENV_NAME:?}_do"
     do_print_section 'UPLOAD JOB DONE!' && echo ''
   }
   deploy_job_do() {
     do_print_section 'DEPLOY JOB BEGIN'
-    do_ssh_add_user_jumper
+    do_func_invoke 'do_ssh_add_user_jumper'
     do_func_invoke "deploy_custom_do"
     do_func_invoke "deploy_${ENV_NAME:?}_do"
     do_print_section 'DEPLOY JOB DONE!' && echo ''
   }
   verify_job_do() {
     do_print_section 'VERIFY JOB BEGIN'
-    do_ssh_add_user_jumper
+    do_func_invoke 'do_ssh_add_user_jumper'
     do_func_invoke "verify_custom_do"
     do_func_invoke "verify_${ENV_NAME:?}_do"
     do_print_section 'VERIFY JOB DONE!' && echo ''
