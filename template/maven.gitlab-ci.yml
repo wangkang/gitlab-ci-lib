@@ -6,6 +6,7 @@
 #==============================================================================
 
 variables:
+  SELF_LIB_VERSION: '1.1'
   GIT_SUBMODULE_STRATEGY: recursive
   GIT_SUBMODULE_UPDATE_FLAGS: --jobs 3
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
@@ -26,7 +27,7 @@ variables:
 
 .common_layer_functions:
   - &init_common_func |
-    SELF_LIB_URL="${SELF_LIB_URL:=https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${CI_COMMIT_REF_NAME:?}/.gitlab-ci.lib.sh}";
+    SELF_LIB_URL="${SELF_LIB_URL:=https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${SELF_LIB_VERSION:?}/.gitlab-ci.lib.sh}";
     echo 'SELF_LIB_URL' "${SELF_LIB_URL}";
     . <(curl -s "${SELF_LIB_URL}");
     define_common_init
