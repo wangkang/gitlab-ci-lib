@@ -59,10 +59,10 @@ define_util_core() {
     fi
   }
   do_dir_chmod() {
-    do_print_trace "$(do_stack_trace)"
     local _dir="${1}"
+    do_print_trace "$(do_stack_trace)" "${_dir}"
     [ ! -d "${_dir:?}" ] && return
-    cd "${_dir}"
+    pushd "${_dir}"
     chmod o-r,o-w,o-x,g-w './'*
     [ -d "./dist" ] && chmod 755 "./dist"
     [ -d "./www" ] && chmod 755 "./www"
@@ -74,6 +74,7 @@ define_util_core() {
     [ -d "./lib" ] && chmod 600 "./lib/"*
     [ -d "./log" ] && chmod 640 "./log/"*
     [ -d "./native" ] && chmod 600 "./native/"*
+    popd
   }
   do_dir_scp() {
     local _local_dir="${1}"
