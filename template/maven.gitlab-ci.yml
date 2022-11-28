@@ -2,7 +2,7 @@
 # Assuming that we have these deployment environments:
 # 'develop', 'testing', 'staging', 'production'.
 # Git Flow is recommended, so we are facing these git branches:
-# 'master', 'develop', 'release/*', 'hotfix/*', 'feature/*'.
+# 'main|master', 'develop', 'release/*', 'hotfix/*', 'feature/*'.
 #==============================================================================
 
 variables:
@@ -114,7 +114,7 @@ package:
   <<: *build_only
   rules:
     - { when: always, if: $CI_COMMIT_REF_NAME =~ /^feature.*$/ }
-    - { when: manual, if: $CI_COMMIT_REF_SLUG == 'master' }
+    - { when: manual, if: $CI_COMMIT_REF_SLUG == 'main' || $CI_COMMIT_REF_SLUG == 'master' }
 
 #===============================================================================
 
@@ -152,19 +152,19 @@ for-staging:
   variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
   <<: *build_then_upload
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(?!(main|master)).+$/ ]
   when: on_success
 to-staging:
   variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(?!(main|master)).+$/ ]
   when: on_success
 env-staging:
   variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(?!(main|master)).+$/ ]
   when: on_success
 
 #===============================================================================
@@ -174,5 +174,5 @@ for-production:
   <<: *build_then_upload
   stage: build
   only: [ tags ]
-  except: [ /^(!master).+$/ ]
+  except: [ /^(?!(main|master)).+$/ ]
   when: manual
