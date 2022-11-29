@@ -75,6 +75,7 @@ define_util_core() {
     [ -d './log' ] && chmod --quiet 640 './log/'*
     [ -d './native' ] && chmod --quiet 600 './native/'*
     popd
+    do_print_trace "$(do_stack_trace)" "${_dir}" 'Done'
   }
   do_dir_scp() {
     local _local_dir="${1}"
@@ -1049,10 +1050,12 @@ define_common_deploy() {
     esac
     [ 0 != ${_status} ] && return ${_status}
     do_dir_scp_hook() {
+      set +e
       do_dir_chmod "${_remote_dir}"
       ln -sfn "${_remote_dir}" "${_remote_dir}/CD_LINK"
       do_dir_list "${_remote_dir}"
       mv -Tf "${_remote_dir}/CD_LINK" "${1:?}"
+      set -e
     }
     export -f do_dir_scp_hook
     set +e
