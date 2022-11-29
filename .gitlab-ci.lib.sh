@@ -38,7 +38,7 @@ define_util_core() {
     [ -d "${_dir:?}" ] && return
     local _mode="${2:-700}"
     local _hint
-    if ! _hint=$(mkdir -p "${_dir}" && chmod "${_mode}" "${_dir}" 2>&1); then
+    if ! _hint=$(mkdir -p "${_dir}" && chmod --quiet "${_mode}" "${_dir}" 2>&1); then
       do_print_warn "$(do_stack_trace) $ mkdir -p ${_dir}"
       do_print_warn "${_hint}"
     fi
@@ -63,17 +63,17 @@ define_util_core() {
     do_print_trace "$(do_stack_trace)" "${_dir}"
     [ ! -d "${_dir:?}" ] && return
     pushd "${_dir}"
-    chmod o-r,o-w,o-x,g-w './'*
-    [ -d "./dist" ] && chmod 755 "./dist"
-    [ -d "./www" ] && chmod 755 "./www"
-    [ -d "./log" ] && chmod 750 "./log"
-    [ -d "./tmp" ] && chmod 750 "./tmp"
-    [ -d "./bin" ] && chmod 700 "./bin/"*
-    [ -d "./env" ] && chmod 600 "./env/"*
-    [ -d "./etc" ] && chmod 600 "./etc/"*
-    [ -d "./lib" ] && chmod 600 "./lib/"*
-    [ -d "./log" ] && chmod 640 "./log/"*
-    [ -d "./native" ] && chmod 600 "./native/"*
+    chmod --quiet o-r,o-w,o-x,g-w './'*
+    [ -d './dist' ] && chmod --quiet 755 './dist'
+    [ -d './www' ] && chmod --quiet 755 './www'
+    [ -d './log' ] && chmod --quiet 750 './log'
+    [ -d './tmp' ] && chmod --quiet 750 './tmp'
+    [ -d './bin' ] && chmod --quiet 700 './bin/'*
+    [ -d './env' ] && chmod --quiet 600 './env/'*
+    [ -d './etc' ] && chmod --quiet 600 './etc/'*
+    [ -d './lib' ] && chmod --quiet 600 './lib/'*
+    [ -d './log' ] && chmod --quiet 640 './log/'*
+    [ -d './native' ] && chmod --quiet 600 './native/'*
     popd
   }
   do_dir_scp() {
@@ -105,7 +105,7 @@ define_util_core() {
   }
   do_diff() {
     printf "\033[0;34m%s\033[0m\n" "# ${FUNCNAME[0]} '${1:?}' '${2:?}'"
-    [ ! -f "${1}" ] && touch "${1}" && chmod 600 "${1}" && ls -lh "${1}"
+    [ ! -f "${1}" ] && touch "${1}" && chmod --quiet 600 "${1}" && ls -lh "${1}"
     local _status
     set +e +o pipefail
     diff --unchanged-line-format='' \
@@ -131,7 +131,7 @@ define_util_core() {
   do_write_file() {
     local _path="${1}"
     local _file_content="${2}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 660 "${_path}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod --quiet 660 "${_path}"
     ls -lh "${_path}"
     printf '%s\n' "${_file_content:?}" >"${_path}"
     ls -lh "${_path}"
@@ -141,7 +141,7 @@ define_util_core() {
     local _path="${1}"
     local _line="${*:2}"
     _line="[$(date +'%Y-%m-%d %T %Z')] ${_line:?}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod 640 "${_path}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod --quiet 640 "${_path}"
     echo "${_line}" >>"${_path}"
     tail -3 "${_path}"
     local _lines
@@ -268,8 +268,8 @@ define_util_ssh() {
     set -e
     mkdir -p ~/.ssh
     touch ~/.ssh/known_hosts
-    chmod 644 ~/'.ssh/known_hosts'
-    chmod 700 ~/'.ssh'
+    chmod --quiet 644 ~/'.ssh/known_hosts'
+    chmod --quiet 700 ~/'.ssh'
   }
   do_ssh_add_user() {
     do_print_info "$(do_stack_trace)"
@@ -796,15 +796,15 @@ define_common_upload() {
     do_upload_cleanup_local
   }
   upload_scp_hook_do() {
-    find "${_remote_dir:?}" -type d -exec chmod 774 {} +
-    find "${_remote_dir:?}" -type f -exec chmod 660 {} +
+    find "${_remote_dir:?}" -type d -exec chmod --quiet 774 {} +
+    find "${_remote_dir:?}" -type f -exec chmod --quiet 660 {} +
     do_dir_list "${_remote_dir:?}"
   }
   upload_cd_version_file_do() {
     local _dir="${1}"
     local _version="${2}"
     local _path="${_dir:?}/CD_VERSION"
-    touch "${_path}" && echo "${_version:?}" >"${_path}" && chmod 640 "${_path}"
+    touch "${_path}" && echo "${_version:?}" >"${_path}" && chmod --quiet 640 "${_path}"
   }
 } # define_common_upload
 
@@ -1167,7 +1167,7 @@ define_common_deploy_env() {
       return 9
     }
     do_dir_scp_hook() {
-      chmod 600 "${_remote_dir}"/*
+      chmod --quiet 600 "${_remote_dir}"/*
       do_dir_list "${_remote_dir}"
     }
     export -f do_dir_scp_hook
