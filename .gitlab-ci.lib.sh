@@ -969,6 +969,8 @@ define_common_deploy() {
     do_func_invoke "deploy_${SERVICE_NAME_LOWER}_hook_do"
     do_ssh_export_clear
     deploy_service_jumper_do
+    do_func_invoke "deploy_${SERVICE_NAME_LOWER}_final_hook_do"
+    do_ssh_export_clear
     do_print_info 'DEPLOY SERVICE DONE'
   }
   do_deploy_vault_env() {
