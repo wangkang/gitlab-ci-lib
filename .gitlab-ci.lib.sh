@@ -62,18 +62,27 @@ define_util_core() {
     local _dir="${1}"
     do_print_trace "$(do_stack_trace)" "${_dir}"
     [ ! -d "${_dir:?}" ] && return
+    keep_it_safe() {
+      local safe_dir=${1}
+      [[ -d "${safe_dir:?}" ]] && {
+        find "${safe_dir}" -type d -exec chmod --quiet 700 {} +
+        find "${safe_dir}" -type f -exec chmod --quiet 600 {} +
+      }
+    }
     pushd "${_dir}"
     chmod --quiet o-r,o-w,o-x,g-w './'*
-    [ -d './dist' ] && chmod --quiet 755 './dist'
-    [ -d './www' ] && chmod --quiet 755 './www'
-    [ -d './log' ] && chmod --quiet 750 './log'
-    [ -d './tmp' ] && chmod --quiet 750 './tmp'
-    [ -d './bin' ] && chmod --quiet 700 './bin/'*
-    [ -d './env' ] && chmod --quiet 600 './env/'*
-    [ -d './etc' ] && chmod --quiet 600 './etc/'*
-    [ -d './lib' ] && chmod --quiet 600 './lib/'*
-    [ -d './log' ] && chmod --quiet 640 './log/'*
-    [ -d './native' ] && chmod --quiet 600 './native/'*
+    keep_it_safe './etc'
+    keep_it_safe './env'
+    keep_it_safe './lib'
+    keep_it_safe './native'
+    [ -d './bin' ] && find './bin' -type f -exec chmod --quiet 700 {} +
+    [ -d './cmd' ] && find './cmd' -type f -exec chmod --quiet 700 {} +
+    [ -d './log' ] && find './log' -type f -exec chmod --quiet 640 {} +
+    [ -d './log' ] && find './log' -type d -exec chmod --quiet 750 {} +
+    [ -d './www' ] && find './www' -type f -exec chmod --quiet 644 {} +
+    [ -d './www' ] && find './www' -type d -exec chmod --quiet 755 {} +
+    [ -d './dist' ] && find './dist' -type f -exec chmod --quiet 644 {} +
+    [ -d './dist' ] && find './dist' -type d -exec chmod --quiet 755 {} +
     popd
     do_print_trace "$(do_stack_trace)" "${_dir}" 'Done'
   }
