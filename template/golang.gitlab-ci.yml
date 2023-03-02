@@ -11,13 +11,14 @@ variables:
   GIT_SUBMODULE_UPDATE_FLAGS: --jobs 3
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
 
-.image01: &image_for_deploy { image: 'node:16.17' }
-.image02: &image_for_build  { image: 'node:16.17' }
+
+.image01: &image_for_deploy { image: 'golang:1.18.10' }
+.image02: &image_for_build  { image: 'golang:1.18.10' }
 .cache01: &build_runner_cache
   <<: *image_for_build
   cache: {
     policy: pull-push, untracked: false, key: "${CACHE_KEY}",
-    paths: [ "node_modules/" ] }
+    paths: [ ".go/pkg/mod/" ] }
 
 .rules01: &rules_if_develop $CI_COMMIT_REF_NAME == 'develop'
 .rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/ || $CI_COMMIT_REF_NAME =~ /^hotfix\/.*$/
@@ -38,10 +39,12 @@ variables:
 
 .custom_layer_functions:
   - &init_custom_func |
-    [ -f '.gitlab-ci.sh' ] && . '.gitlab-ci.sh';
-    init_inject_ci_bash_do; do_func_invoke 'define_custom_init'
+    [[ -f "${CI_PROJECT_DIR:?}/.gitlab-ci.sh" ]] && {
+      . "${CI_PROJECT_DIR}/.gitlab-ci.sh" ;
+      echo "Sourced with exit code: ${?}"
+    } ; pwd ;
   - &build_custom_func  do_func_invoke 'define_custom_build'
-  - &upload_custom_func do_func_invoke 'define_custom_upload'
+  - &upload_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_upload'
   - &deploy_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_deploy'
   - &verify_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_verify'
 
@@ -53,12 +56,14 @@ stages: [ build, deploy, verify ]
   stage: build
   <<: *build_runner_cache
   before_script:
+    - *init_custom_func
     - *init_common_func
+    - do_func_invoke 'define_custom_init'
     - init_first_do
   script:
     - *init_ssh_common_func
     - init_ssh_do
-    - *init_custom_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -69,7 +74,7 @@ stages: [ build, deploy, verify ]
   script:
     - *init_ssh_common_func
     - init_ssh_do
-    - *init_custom_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -81,31 +86,33 @@ stages: [ build, deploy, verify ]
 .deploy_with_ssh: &deploy_with_ssh
   <<: *image_for_deploy
   before_script:
+    - *init_custom_func
     - *init_common_func
+    - do_func_invoke 'define_custom_init'
     - init_first_do
     - *init_ssh_common_func
     - init_ssh_do
-    - *init_custom_func
+  allow_failure: true
 
 .deploy_to_env: &deploy_to_env
-  stage: deploy
   <<: *deploy_with_ssh
+  stage: deploy
   script:
     - *deploy_common_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *deploy_custom_func
     - deploy_job_do
-  allow_failure: true
-
+  
 .deploy_verify_env: &deploy_verify_env
-  stage: verify
   <<: *deploy_with_ssh
+  stage: verify
   script:
     - *verify_common_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *verify_custom_func
     - verify_job_do
-  allow_failure: true
 
 #===============================================================================
 
@@ -123,11 +130,11 @@ for-develop:
   <<: *build_then_upload
   rules: [ { if: *rules_if_develop, when: on_success } ]
 to-develop:
-  variables: { ENV_NAME: develop, GIT_CHECKOUT: "false" }
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
   <<: *deploy_to_env
   rules: [ { if: *rules_if_develop, when: on_success } ]
 env-develop:
-  variables: { ENV_NAME: develop, GIT_CHECKOUT: "false" }
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
   <<: *deploy_verify_env
   rules: [ { if: *rules_if_develop, when: on_success } ]
 
@@ -138,11 +145,11 @@ for-testing:
   <<: *build_then_upload
   rules: [ { if: *rules_if_testing, when: on_success } ]
 to-testing:
-  variables: { ENV_NAME: testing, GIT_CHECKOUT: "false" }
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
   <<: *deploy_to_env
   rules: [ { if: *rules_if_testing, when: on_success } ]
 env-testing:
-  variables: { ENV_NAME: testing, GIT_CHECKOUT: "false" }
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
   <<: *deploy_verify_env
   rules: [ { if: *rules_if_testing, when: on_success } ]
 
@@ -155,13 +162,13 @@ for-staging:
   except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: on_success
 to-staging:
-  variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
   <<: *deploy_to_env
   only: [ tags ]
   except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: on_success
 env-staging:
-  variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
   <<: *deploy_verify_env
   only: [ tags ]
   except: [ /^(!main).+$/, /^(!master).+$/ ]
