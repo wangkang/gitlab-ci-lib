@@ -31,7 +31,9 @@ define_util_core() {
     do_print_trace "$(whoami)@$(hostname):${1}"
     local _dir="${1}"
     [ ! -d "${_dir:?}" ] && return
-    cd "${_dir}" && find '.' -type f -exec ls -lhA {} +
+    find "${_dir}" -type l -exec ls -lhA {} +
+    find "${_dir}" -type f -exec ls -lhA {} +
+    cd "${_dir}"
   }
   do_dir_make() {
     local _dir="${1}"
