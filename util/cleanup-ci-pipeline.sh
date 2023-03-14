@@ -1,18 +1,16 @@
 #!/bin/bash
 set -eo pipefail
 
-## https://docs.gitlab.com/15.9/ee/api/rest/
+readonly GITLAB_API_URL="${GITLAB_API_URL:-https://gitlab.com/api/v4}"
+readonly HEADER_TOKEN="PRIVATE-TOKEN: ${GITLAB_API_TOKEN:?}"
+readonly GITLAB_PROJECT_ID="${GITLAB_PROJECT_ID:-${1}}"
+readonly PER_PAGE="${GITLAB_PIPELINE_PER_PAGE:-15}"
+readonly RESERVED_PAGES="${GITLAB_PIPELINE_RESERVED_PAGES:-20}"
 
-declare -xr GITLAB_API_URL="${GITLAB_API_URL:-https://gitlab.com/api/v4}"
-declare -xr HEADER_TOKEN="PRIVATE-TOKEN: ${GITLAB_API_TOKEN:?}"
-declare -xr GITLAB_PROJECT_ID="${GITLAB_PROJECT_ID:-${1}}"
-declare -xr PER_PAGE=${GITLAB_PIPELINE_RESERVED_PAGES:-15}
-declare -xr RESERVED_PAGES=${GITLAB_PIPELINE_RESERVED_PAGES:-20}
-
-echo "GITLAB_API_URL    :" "${GITLAB_API_URL}"
-echo "GITLAB_PROJECT_ID :" "${GITLAB_PROJECT_ID}"
-echo "PER_PAGE          :" "${PER_PAGE}"
-echo "RESERVED_PAGES    :" "${RESERVED_PAGES}"
+echo "GITLAB_API_URL    : ${GITLAB_API_URL}"
+echo "GITLAB_PROJECT_ID : ${GITLAB_PROJECT_ID}"
+echo "PER_PAGE          : ${PER_PAGE}"
+echo "RESERVED_PAGES    : ${RESERVED_PAGES}"
 
 cleanup_ci_pipeline() {
   local _url="${GITLAB_API_URL}/projects?per_page=100&sort=asc"
@@ -38,10 +36,10 @@ delete_pipeline_project() {
     esac
   done < <(curl -s --header "${HEADER_TOKEN:?}" -I -X HEAD "${_url}")
   echo "Project:<$_project_id> Pipelines:[$_total_item] Pages:[$_total_page]"
-  if [ "$_total_page" -gt "${RESERVED_PAGES:?}" ]; then
+  if [[ "$_total_page" -gt "${RESERVED_PAGES:?}" ]]; then
     delete_pipeline_page "${_project_id:?}" "$_total_page"
   else
-    echo "Project:<$_project_id> Canceled"
+    echo "Project:<$_project_id> Skipped"
   fi
 }
 
@@ -62,10 +60,11 @@ delete_pipeline_page() {
   delete_pipeline_project "${_project_id:?}"
 }
 
-if [ -z "${GITLAB_PROJECT_ID}" ]; then
+if [[ -z "${GITLAB_PROJECT_ID}" ]]; then
   cleanup_ci_pipeline
 else
   delete_pipeline_project "${GITLAB_PROJECT_ID}"
 fi
 
+## https://docs.gitlab.com/15.9/ee/api/rest/
 ## 2023-03-14
