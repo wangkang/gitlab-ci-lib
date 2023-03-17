@@ -1,22 +1,28 @@
 #!/bin/bash
 set -eo pipefail
 
-declare -rx GITLAB_API_URL="${GITLAB_API_URL:?}"
-declare -rx HEADER_TOKEN="PRIVATE-TOKEN: ${GITLAB_API_TOKEN:?}"
-declare -rx PER_PAGE=${GITLAB_PIPELINE_RESERVED_PAGES:-15}
-declare -rx RESERVED_PAGES=${GITLAB_PIPELINE_RESERVED_PAGES:-10}
+readonly GITLAB_API_URL="${GITLAB_API_URL:-https://gitlab.com/api/v4}"
+readonly HEADER_TOKEN="PRIVATE-TOKEN: ${GITLAB_API_TOKEN:?}"
+readonly GITLAB_PROJECT_ID="${GITLAB_PROJECT_ID:-${1}}"
+readonly PER_PAGE="${GITLAB_PIPELINE_PER_PAGE:-15}"
+readonly RESERVED_PAGES="${GITLAB_PIPELINE_RESERVED_PAGES:-20}"
+
+echo "GITLAB_API_URL    : ${GITLAB_API_URL}"
+echo "GITLAB_PROJECT_ID : ${GITLAB_PROJECT_ID}"
+echo "PER_PAGE          : ${PER_PAGE}"
+echo "RESERVED_PAGES    : ${RESERVED_PAGES}"
 
 cleanup_ci_pipeline() {
   local _url="${GITLAB_API_URL}/projects?per_page=100&sort=asc"
-  shopt -s extglob
   while IFS='' read -r _project_id; do
+    echo "cleanup_ci_pipeline -> delete_pipeline_project <${_project_id:?}>"
     delete_pipeline_project "${_project_id:?}"
   done < <(curl -s --header "${HEADER_TOKEN:?}" "${_url}" | jq -r '.[] .id')
 }
 
 delete_pipeline_project() {
   local _project_id="${1}"
-  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?sort=asc&per_page=${PER_PAGE:?}"
+  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?per_page=${PER_PAGE:?}"
   while IFS=':' read -r key value; do
     # remove leading whitespace characters
     value="${value#"${value%%[![:space:]]*}"}"
@@ -30,18 +36,20 @@ delete_pipeline_project() {
     esac
   done < <(curl -s --header "${HEADER_TOKEN:?}" -I -X HEAD "${_url}")
   echo "Project:<$_project_id> Pipelines:[$_total_item] Pages:[$_total_page]"
-  if [ "$_total_page" -gt "${RESERVED_PAGES:?}" ]; then
+  if [[ "$_total_page" -gt "${RESERVED_PAGES:?}" ]]; then
     delete_pipeline_page "${_project_id:?}" "$_total_page"
+  else
+    echo "Project:<$_project_id> Skipped"
   fi
 }
 
 delete_pipeline_page() {
   local _project_id="${1}"
   local _page="${2}"
-  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?sort=asc&per_page=${PER_PAGE:?}&page=${_page:?}"
+  local _url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines?sort=desc&per_page=${PER_PAGE:?}&page=${_page:?}"
   local _array=()
   while IFS='' read -r _pipeline_id; do
-    _array+=("${_pipeline_id}")
+    _array=("${_pipeline_id}" "${_array[@]}")
   done < <(curl -s --header "${HEADER_TOKEN:?}" "$_url" | jq -r '.[] .id')
   for _pipeline_id in "${_array[@]}"; do
     local _pipeline_url="${GITLAB_API_URL}/projects/${_project_id:?}/pipelines/${_pipeline_id}"
@@ -52,5 +60,11 @@ delete_pipeline_page() {
   delete_pipeline_project "${_project_id:?}"
 }
 
-# cleanup_ci_pipeline
-# delete_pipeline_project 47
+if [[ -z "${GITLAB_PROJECT_ID}" ]]; then
+  cleanup_ci_pipeline
+else
+  delete_pipeline_project "${GITLAB_PROJECT_ID}"
+fi
+
+## https://docs.gitlab.com/15.9/ee/api/rest/
+## 2023-03-14
