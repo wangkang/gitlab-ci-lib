@@ -6,7 +6,7 @@
 #==============================================================================
 
 variables:
-  SELF_LIB_VERSION: '1.2'
+  SELF_LIB_VERSION: '1.3'
   GIT_SUBMODULE_STRATEGY: recursive
   GIT_SUBMODULE_UPDATE_FLAGS: --jobs 3
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
@@ -103,7 +103,7 @@ stages: [ build, deploy, verify ]
     - init_final_do
     - *deploy_custom_func
     - deploy_job_do
-  
+
 .deploy_verify_env: &deploy_verify_env
   <<: *deploy_with_ssh
   stage: verify
