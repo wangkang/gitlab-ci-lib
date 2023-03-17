@@ -679,7 +679,7 @@ define_common_init() {
     [ -z "${ENV_NAME}" ] && ENV_NAME='none'
     do_print_dash_pair 'CUSTOMER' "${CUSTOMER}"
     do_print_dash_pair 'ENV_NAME' "${ENV_NAME}"
-    do_print_dash_pair 'CI_COMMIT_REF_NAME' "${CI_COMMIT_REF_NAME}"
+    #do_print_dash_pair 'CI_COMMIT_REF_NAME' "${CI_COMMIT_REF_NAME}"
   }
   _init_ci_tag() {
     [ -z "${CI_COMMIT_TAG}" ] && CI_COMMIT_TAG=${CI_COMMIT_SHORT_SHA}
@@ -687,7 +687,7 @@ define_common_init() {
       do_print_warn "Error: CI_COMMIT_TAG is empty"
       exit 120
     fi
-    do_print_dash_pair 'CI_COMMIT_TAG' "${CI_COMMIT_TAG}"
+    #do_print_dash_pair 'CI_COMMIT_TAG' "${CI_COMMIT_TAG}"
   }
   _init_version_tag() {
     _init_ci_tag
@@ -708,7 +708,7 @@ define_common_init() {
     fi
     if [ -z "${CD_VERSION_TAG}" ]; then CD_VERSION_TAG='0.0.x'; fi
     VERSION_BUILDING="${CD_VERSION_TAG:?}_${CI_PIPELINE_IID:-${CI_PIPELINE_ID:?}}"
-    do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING}"
+    #do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING}"
   }
 } # define_common_init
 
@@ -1319,6 +1319,9 @@ define_common_deploy_env() {
 define_common_ci_job() {
   build_job_do() {
     do_print_section 'BUILD JOB BEGIN'
+    do_print_dash_pair 'CI_COMMIT_REF_NAME' "${CI_COMMIT_REF_NAME:?}"
+    do_print_dash_pair 'CI_COMMIT_TAG' "${CI_COMMIT_TAG:?}"
+    do_print_dash_pair 'VERSION_BUILDING' "${VERSION_BUILDING:?}"
     do_func_invoke "build_custom_do"
     do_func_invoke "build_${ENV_NAME:?}_do"
     do_print_section 'BUILD JOB DONE!' && echo ''
