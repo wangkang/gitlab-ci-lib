@@ -23,14 +23,16 @@ variables:
 .rules_develop: &rules_develop { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH == 'develop' } ] }
 .rules_testing: &rules_testing { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH =~ /^release\/.*$/ } ] }
 .rules_staging: &rules_staging {
-  rules:
-    - { when: on_success, if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/ }
-    - { when: on_success, if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+(-\w+(\.\w+)*)?(\+\w+(\.\w+)*)?$/ }
+  rules: [
+    { when: on_success, if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/ },
+    { when: on_success, if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+(-\w+(\.\w+)*)?(\+\w+(\.\w+)*)?$/ },
+  ]
 }
 .rules_default: &rules_default {
-  rules:
-    - { when: manual, if: $CI_COMMIT_BRANCH =~ /^feature\/.*$/ }
-    - { when: manual, if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master' }
+  rules: [
+    { when: manual, if: $CI_COMMIT_BRANCH =~ /^feature\/.*$/ },
+    { when: manual, if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master' },
+  ]
 }
 
 #===============================================================================

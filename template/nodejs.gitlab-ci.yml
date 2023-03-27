@@ -11,6 +11,7 @@ variables:
   GIT_SUBMODULE_UPDATE_FLAGS: --jobs 3
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
 
+
 .image01: &image_for_deploy { image: 'node:16.17' }
 .image02: &image_for_build  { image: 'node:16.17' }
 .cache01: &build_runner_cache
@@ -19,17 +20,19 @@ variables:
     policy: pull-push, untracked: false, key: "${CACHE_KEY}",
     paths: [ 'node_modules/' ] }
 
-.rules_develop: &rules_develop { rules: [ { when: manual,     if: $CI_COMMIT_BRANCH == 'develop' } ] }
+.rules_develop: &rules_develop { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH == 'develop' } ] }
 .rules_testing: &rules_testing { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH =~ /^release\/.*$/ } ] }
 .rules_staging: &rules_staging {
-  rules:
-    - { when: on_success, if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/ }
-    - { when: on_success, if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+(-\w+(\.\w+)*)?(\+\w+(\.\w+)*)?$/ }
+  rules: [
+    { when: on_success, if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/ },
+    { when: on_success, if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+(-\w+(\.\w+)*)?(\+\w+(\.\w+)*)?$/ },
+  ]
 }
 .rules_default: &rules_default {
-  rules:
-    - { when: manual, if: $CI_COMMIT_BRANCH =~ /^feature\/.*$/ }
-    - { when: manual, if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master' }
+  rules: [
+    { when: manual, if: $CI_COMMIT_BRANCH =~ /^feature\/.*$/ },
+    { when: manual, if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master' },
+  ]
 }
 
 #===============================================================================
