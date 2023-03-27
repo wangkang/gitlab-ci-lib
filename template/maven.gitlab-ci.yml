@@ -20,6 +20,10 @@ variables:
     policy: pull-push, untracked: false, key: "${CACHE_KEY}",
     paths: [ ".m2/" ] }
 
+#===============================================================================
+
+stages: [ first, build, deploy, verify, final ]
+
 .rules_develop: &rules_develop { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH == 'develop' } ] }
 .rules_testing: &rules_testing { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH =~ /^release\/.*$/ } ] }
 .rules_staging: &rules_staging
@@ -35,8 +39,6 @@ variables:
     - when: manual
       if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master'
 
-#===============================================================================
-
 .common_layer_functions:
   - &init_common_func |
     SELF_LIB_URL="${SELF_LIB_URL:=https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${SELF_LIB_VERSION:?}/.gitlab-ci.lib.sh}";
@@ -51,27 +53,27 @@ variables:
 
 .custom_layer_functions:
   - &init_custom_func |
-    [ -f '.gitlab-ci.sh' ] && . '.gitlab-ci.sh';
-    init_inject_ci_bash_do; do_func_invoke 'define_custom_init'
+    [[ -f "${CI_PROJECT_DIR:?}/.gitlab-ci.sh" ]] && {
+      . "${CI_PROJECT_DIR}/.gitlab-ci.sh" ;
+      echo "Sourced with exit code: ${?}"
+    } ; pwd ;
   - &build_custom_func  do_func_invoke 'define_custom_build'
-  - &upload_custom_func do_func_invoke 'define_custom_upload'
+  - &upload_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_upload'
   - &deploy_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_deploy'
   - &verify_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_verify'
-
-#===============================================================================
-
-stages: [ build, deploy, verify ]
 
 .build_only: &build_only
   stage: build
   <<: *build_runner_cache
   before_script:
+    - *init_custom_func
     - *init_common_func
+    - do_func_invoke 'define_custom_init'
     - init_first_do
   script:
     - *init_ssh_common_func
     - init_ssh_do
-    - *init_custom_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -82,7 +84,7 @@ stages: [ build, deploy, verify ]
   script:
     - *init_ssh_common_func
     - init_ssh_do
-    - *init_custom_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *build_common_func
     - *build_custom_func
@@ -94,31 +96,33 @@ stages: [ build, deploy, verify ]
 .deploy_with_ssh: &deploy_with_ssh
   <<: *image_for_deploy
   before_script:
+    - *init_custom_func
     - *init_common_func
+    - do_func_invoke 'define_custom_init'
     - init_first_do
     - *init_ssh_common_func
     - init_ssh_do
-    - *init_custom_func
+  allow_failure: true
 
 .deploy_to_env: &deploy_to_env
-  stage: deploy
   <<: *deploy_with_ssh
+  stage: deploy
   script:
     - *deploy_common_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *deploy_custom_func
     - deploy_job_do
-  allow_failure: true
 
 .deploy_verify_env: &deploy_verify_env
-  stage: verify
   <<: *deploy_with_ssh
+  stage: verify
   script:
     - *verify_common_func
+    - init_inject_ci_bash_do
     - init_final_do
     - *verify_custom_func
     - verify_job_do
-  allow_failure: true
 
 #===============================================================================
 
@@ -181,3 +185,5 @@ for-production:
   only: [ tags ]
   except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: manual
+
+#===============================================================================
