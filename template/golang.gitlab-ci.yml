@@ -6,7 +6,6 @@
 #==============================================================================
 
 variables:
-  SELF_LIB_VERSION: '1.3'
   GIT_SUBMODULE_STRATEGY: recursive
   GIT_SUBMODULE_UPDATE_FLAGS: --jobs 3
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
@@ -20,13 +19,28 @@ variables:
     policy: pull-push, untracked: false, key: "${CACHE_KEY}",
     paths: [ ".go/pkg/mod/" ] }
 
-.rules01: &rules_if_develop $CI_COMMIT_REF_NAME == 'develop'
-.rules02: &rules_if_testing $CI_COMMIT_REF_NAME =~ /^release\/.*$/ || $CI_COMMIT_REF_NAME =~ /^hotfix\/.*$/
-
 #===============================================================================
+
+stages: [ first, build, deploy, verify, final ]
+
+.rules_develop: &rules_develop { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH == 'develop' } ] }
+.rules_testing: &rules_testing { rules: [ { when: on_success, if: $CI_COMMIT_BRANCH =~ /^release\/.*$/ } ] }
+.rules_staging: &rules_staging
+  rules:
+    - when: on_success
+      if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/
+    - when: on_success
+      if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+(-\w+(\.\w+)*)?(\+\w+(\.\w+)*)?$/
+.rules_default: &rules_default
+  rules:
+    - when: manual
+      if: $CI_COMMIT_BRANCH =~ /^feature\/.*$/
+    - when: manual
+      if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master'
 
 .common_layer_functions:
   - &init_common_func |
+    SELF_LIB_VERSION="${GITLAB_CI_LIB_VERSION:-1.4}";
     SELF_LIB_URL="${SELF_LIB_URL:=https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${SELF_LIB_VERSION:?}/.gitlab-ci.lib.sh}";
     echo 'SELF_LIB_URL' "${SELF_LIB_URL}";
     . <(curl -s "${SELF_LIB_URL}");
@@ -47,10 +61,6 @@ variables:
   - &upload_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_upload'
   - &deploy_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_deploy'
   - &verify_custom_func init_inject_cd_bash_do; do_func_invoke 'define_custom_verify'
-
-#===============================================================================
-
-stages: [ build, deploy, verify ]
 
 .build_only: &build_only
   stage: build
@@ -119,60 +129,52 @@ stages: [ build, deploy, verify ]
 package:
   variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
   <<: *build_only
-  rules:
-    - { when: always, if: $CI_COMMIT_REF_NAME =~ /^feature.*$/ }
-    - { when: manual, if: $CI_COMMIT_REF_SLUG == 'main' || $CI_COMMIT_REF_SLUG == 'master' }
+  <<: *rules_default
 
 #===============================================================================
 
 for-develop:
   variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
   <<: *build_then_upload
-  rules: [ { if: *rules_if_develop, when: on_success } ]
+  <<: *rules_develop
 to-develop:
-  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
-  rules: [ { if: *rules_if_develop, when: on_success } ]
+  <<: *rules_develop
 env-develop:
-  variables: { ENV_NAME: develop, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: develop, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
-  rules: [ { if: *rules_if_develop, when: on_success } ]
+  <<: *rules_develop
 
 #===============================================================================
 
 for-testing:
   variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
   <<: *build_then_upload
-  rules: [ { if: *rules_if_testing, when: on_success } ]
+  <<: *rules_testing
 to-testing:
-  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
-  rules: [ { if: *rules_if_testing, when: on_success } ]
+  <<: *rules_testing
 env-testing:
-  variables: { ENV_NAME: testing, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: testing, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
-  rules: [ { if: *rules_if_testing, when: on_success } ]
+  <<: *rules_testing
 
 #===============================================================================
 
 for-staging:
   variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
   <<: *build_then_upload
-  only: [ tags ]
-  except: [ /^(!main).+$/, /^(!master).+$/ ]
-  when: on_success
+  <<: *rules_staging
 to-staging:
-  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_to_env
-  only: [ tags ]
-  except: [ /^(!main).+$/, /^(!master).+$/ ]
-  when: on_success
+  <<: *rules_staging
 env-staging:
-  variables: { ENV_NAME: staging, GIT_CHECKOUT: "true" }
+  variables: { ENV_NAME: staging, GIT_CHECKOUT: "false" }
   <<: *deploy_verify_env
-  only: [ tags ]
-  except: [ /^(!main).+$/, /^(!master).+$/ ]
-  when: on_success
+  <<: *rules_staging
 
 #===============================================================================
 
@@ -183,3 +185,5 @@ for-production:
   only: [ tags ]
   except: [ /^(!main).+$/, /^(!master).+$/ ]
   when: manual
+
+#===============================================================================
