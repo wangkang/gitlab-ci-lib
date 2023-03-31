@@ -719,10 +719,14 @@ define_common_init_ssh() {
   define_util_ssh
   do_ssh_upload_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
   do_ssh_jumper_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
-  do_ssh_server_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"; }
+  do_ssh_server_invoke() {
+    do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
+  }
   do_ssh_upload_exec() { do_ssh_exec "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
   do_ssh_jumper_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
-  do_ssh_server_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"; }
+  do_ssh_server_exec() {
+    do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
+  }
   init_ssh_do() {
     do_ssh_agent_init
     do_ssh_add_user_default
@@ -737,7 +741,8 @@ define_common_build() {
     # shellcheck disable=SC2034
     local CD_ENVIRONMENT="${ENV_NAME:-none}"
     do_file_replace "${_template_file}" CD_ENVIRONMENT CD_VERSION_TAG \
-      CI_COMMIT_TAG CI_PIPELINE_IID CI_PIPELINE_ID CI_JOB_ID CI_COMMIT_REF_NAME CI_COMMIT_SHA CI_COMMIT_SHORT_SHA
+      CI_COMMIT_TAG CI_PIPELINE_IID CI_PIPELINE_ID CI_JOB_ID CI_COMMIT_REF_NAME \
+      CI_COMMIT_SHA CI_COMMIT_SHORT_SHA
     do_print_info 'BUILD CI/CD INFO DONE'
   }
 }
@@ -1034,7 +1039,8 @@ define_common_deploy() {
     fi
   }
   deploy_service_jumper_do() {
-    local _cd_log_line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_IID:-CI_PIPELINE_ID} ${CI_JOB_ID}]"
+    local _cd_log_line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] \
+    [${CI_PIPELINE_IID:-CI_PIPELINE_ID} ${CI_JOB_ID}]"
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful
     do_ssh_export do_dir_make do_dir_list do_dir_chmod do_dir_scp do_write_log_file
@@ -1072,7 +1078,8 @@ define_common_deploy() {
     }
     export -f do_dir_scp_hook
     set +e
-    do_dir_scp "${SERVICE_UPLOAD_DIR:?}" "${SERVICE_DEPLOY_DIR:?}" "${SERVICE_USER_HOST:?}" 'do_dir_scp_hook' "${SERVICE_DIR:?}"
+    do_dir_scp "${SERVICE_UPLOAD_DIR:?}" "${SERVICE_DEPLOY_DIR:?}" "${SERVICE_USER_HOST:?}" \
+      'do_dir_scp_hook' "${SERVICE_DIR:?}"
     local _status=${?}
     set -e
     local _head='# do_dir_scp exit with status'
