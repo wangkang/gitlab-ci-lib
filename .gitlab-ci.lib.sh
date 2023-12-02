@@ -40,7 +40,7 @@ define_util_core() {
     [ -d "${_dir:?}" ] && return
     local _mode="${2:-700}"
     local _hint
-    if ! _hint=$(mkdir -p "${_dir}" && chmod --quiet "${_mode}" "${_dir}" 2>&1); then
+    if ! _hint=$(mkdir -p "${_dir}" && chmod "${_mode}" "${_dir}" 2>&1); then
       do_print_warn "$(do_stack_trace) $ mkdir -p ${_dir}"
       do_print_warn "${_hint}"
     fi
@@ -67,24 +67,24 @@ define_util_core() {
     keep_it_safe() {
       local safe_dir=${1}
       [[ -d "${safe_dir:?}" ]] && {
-        find "${safe_dir}" -type d -exec chmod --quiet 700 {} +
-        find "${safe_dir}" -type f -exec chmod --quiet 600 {} +
+        find "${safe_dir}" -type d -exec chmod -f 700 {} +
+        find "${safe_dir}" -type f -exec chmod -f 600 {} +
       }
     }
     pushd "${_dir}"
-    chmod --quiet o-r,o-w,o-x,g-w './'*
+    chmod -f o-r,o-w,o-x,g-w './'*
     keep_it_safe './etc'
     keep_it_safe './env'
     keep_it_safe './lib'
     keep_it_safe './native'
-    [ -d './bin' ] && find './bin' -type f -exec chmod --quiet 700 {} +
-    [ -d './cmd' ] && find './cmd' -type f -exec chmod --quiet 700 {} +
-    [ -d './log' ] && find './log' -type f -exec chmod --quiet 640 {} +
-    [ -d './log' ] && find './log' -type d -exec chmod --quiet 750 {} +
-    [ -d './www' ] && find './www' -type f -exec chmod --quiet 644 {} +
-    [ -d './www' ] && find './www' -type d -exec chmod --quiet 755 {} +
-    [ -d './dist' ] && find './dist' -type f -exec chmod --quiet 644 {} +
-    [ -d './dist' ] && find './dist' -type d -exec chmod --quiet 755 {} +
+    [ -d './bin' ] && find './bin' -type f -exec chmod -f 700 {} +
+    [ -d './cmd' ] && find './cmd' -type f -exec chmod -f 700 {} +
+    [ -d './log' ] && find './log' -type f -exec chmod -f 640 {} +
+    [ -d './log' ] && find './log' -type d -exec chmod -f 750 {} +
+    [ -d './www' ] && find './www' -type f -exec chmod -f 644 {} +
+    [ -d './www' ] && find './www' -type d -exec chmod -f 755 {} +
+    [ -d './dist' ] && find './dist' -type f -exec chmod -f 644 {} +
+    [ -d './dist' ] && find './dist' -type d -exec chmod -f 755 {} +
     popd
     do_print_trace "$(do_stack_trace)" "${_dir}" 'Done'
   }
@@ -117,7 +117,7 @@ define_util_core() {
   }
   do_diff() {
     printf "\033[0;34m%s\033[0m\n" "# ${FUNCNAME[0]} '${1:?}' '${2:?}'"
-    [ ! -f "${1}" ] && touch "${1}" && chmod --quiet 600 "${1}" && ls -lh "${1}"
+    [ ! -f "${1}" ] && touch "${1}" && chmod -f 600 "${1}" && ls -lh "${1}"
     local _status
     set +e +o pipefail
     diff --unchanged-line-format='' \
@@ -143,7 +143,7 @@ define_util_core() {
   do_write_file() {
     local _path="${1}"
     local _file_content="${2}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod --quiet 660 "${_path}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod -f 660 "${_path}"
     ls -lh "${_path}"
     printf '%s\n' "${_file_content:?}" >"${_path}"
     ls -lh "${_path}"
@@ -153,7 +153,7 @@ define_util_core() {
     local _path="${1}"
     local _line="${*:2}"
     _line="[$(date +'%Y-%m-%d %T %Z')] ${_line:?}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod --quiet 640 "${_path}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod -f 640 "${_path}"
     echo "${_line}" >>"${_path}"
     tail -3 "${_path}"
     local _lines
@@ -280,8 +280,8 @@ define_util_ssh() {
     set -e
     mkdir -p ~/.ssh
     touch ~/.ssh/known_hosts
-    chmod --quiet 644 ~/'.ssh/known_hosts'
-    chmod --quiet 700 ~/'.ssh'
+    chmod 644 ~/'.ssh/known_hosts'
+    chmod 700 ~/'.ssh'
   }
   do_ssh_add_user() {
     do_print_info "$(do_stack_trace)"
@@ -774,7 +774,7 @@ define_common_upload() {
     do_print_info 'UPLOAD SERVICE ENV DONE' "[${1}]"
   }
   do_upload_copy_dir() {
-    local _link='cp --preserve --recursive --link'
+    local _link='cp -p -R -l'
     local service=${1}
     local service_group=${2}
     local _dir="${CI_PROJECT_DIR:?}/deploy/${service_group:?}"
@@ -791,7 +791,7 @@ define_common_upload() {
     set -e
   }
   do_upload_copy_file() {
-    local _link='cp --preserve --recursive --link'
+    local _link='cp -p -R -l'
     local _file_type="${1}"
     local _file_path="${2}"
     local _file_path="${CI_PROJECT_DIR:?}/${_file_path:?}"
@@ -813,15 +813,15 @@ define_common_upload() {
     do_upload_cleanup_local
   }
   upload_scp_hook_do() {
-    find "${_remote_dir:?}" -type d -exec chmod --quiet 774 {} +
-    find "${_remote_dir:?}" -type f -exec chmod --quiet 660 {} +
+    find "${_remote_dir:?}" -type d -exec chmod -f 774 {} +
+    find "${_remote_dir:?}" -type f -exec chmod -f 660 {} +
     do_dir_list "${_remote_dir:?}"
   }
   upload_cd_version_file_do() {
     local _dir="${1}"
     local _version="${2}"
     local _path="${_dir:?}/CD_VERSION"
-    touch "${_path}" && echo "${_version:?}" >"${_path}" && chmod --quiet 640 "${_path}"
+    touch "${_path}" && echo "${_version:?}" >"${_path}" && chmod -f 640 "${_path}"
   }
 } # define_common_upload
 
@@ -1190,7 +1190,7 @@ define_common_deploy_env() {
       return 9
     }
     do_dir_scp_hook() {
-      chmod --quiet 600 "${_remote_dir}"/*
+      chmod -f 600 "${_remote_dir}"/*
       do_dir_list "${_remote_dir}"
     }
     export -f do_dir_scp_hook
@@ -1254,7 +1254,7 @@ define_common_deploy_env() {
       do_print_trace "# ${FUNCNAME[0]} cancelled: not changed"
       return
     fi
-    local _cp="cp --preserve -f"
+    local _cp="cp -p -f"
     if [ 'yes' = "${_is_first}" ]; then
       do_print_trace "# ${FUNCNAME[0]}: first deployment"
       ${_cp} "${_compose_yml_new:?}" "${_compose_yml_old:?}"
@@ -1305,9 +1305,9 @@ define_common_deploy_env() {
     local _path="${_compose_yml_old:?}"
     [ ! -f "${_path}" ] && return
     cd "${SERVICE_GROUP_DIR:?}"
-    cp --preserve "${_path}" "${ENV_BACKUP_DIR}/${_compose_yml_name}"
+    cp -p "${_path}" "${ENV_BACKUP_DIR}/${_compose_yml_name}"
     local _path="${_compose_env_old:?}"
-    [ -f "${_path}" ] && cp --preserve "${_path}" "${ENV_BACKUP_DIR}/${_compose_env_name:?}"
+    [ -f "${_path}" ] && cp -p "${_path}" "${ENV_BACKUP_DIR}/${_compose_env_name:?}"
     find . -type l -ls >"${ENV_BACKUP_DIR}/cd_version_linked"
     backup_cd_version() {
       cd "${SERVICE_GROUP_DIR:?}"
