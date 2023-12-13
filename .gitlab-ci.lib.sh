@@ -1209,6 +1209,7 @@ define_common_deploy_env() {
     do_ssh_export do_file_replace do_diff
     do_ssh_export deploy_env_reset_do deploy_env_diff_do deploy_env_replace_do deploy_env_backup_do
     do_ssh_export CUSTOMER ENV_NAME CONTAINER_WORK_DIR _remote_dir _service_group_lower
+    do_ssh_export DEPLOY_HOST_ETH
     do_ssh_export SERVICE_GROUP SERVICE_GROUP_DIR ENV_DEPLOY_DIR
     init_service_vault_do
     do_ssh_export SERVICE_VAULT_USER SERVICE_VAULT_PASS SERVICE_VAULT_URL SERVICE_VAULT_PATH
@@ -1292,7 +1293,8 @@ define_common_deploy_env() {
     declare -rx DEPLOY_ENV_NAME="${ENV_NAME}"
     declare -rx DEPLOY_CUSTOMER="${CUSTOMER}"
     declare -x DEPLOY_HOST_IP='127.0.0.1'
-    DEPLOY_HOST_IP=$(/usr/sbin/ifconfig eth0 | grep 'inet ' | awk '{print $2}')
+    local _eth="${DEPLOY_HOST_ETH:-eth0}"
+    DEPLOY_HOST_IP=$(/usr/sbin/ifconfig "${_eth}" | grep 'inet ' | awk '{print $2}')
     do_file_replace "${_path:?}" CONTAINER_WORK_DIR DEPLOY_CUSTOMER DEPLOY_HOST_IP DEPLOY_ENV_NAME
     sed -i -e "s|#VAULT_USER|${SERVICE_VAULT_USER}|g" "${_path}"
     sed -i -e "s|#VAULT_PASS|${SERVICE_VAULT_PASS}|g" "${_path}"
