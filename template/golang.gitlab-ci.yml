@@ -11,13 +11,13 @@ variables:
   CACHE_KEY: "ci-cache-${CI_PROJECT_ID}-${CI_PROJECT_NAME}"
 
 
-.image01: &image_for_deploy { image: 'golang:1.18.10' }
-.image02: &image_for_build  { image: 'golang:1.18.10' }
+.image01: &image_for_deploy { image: 'golang:1.21.4' }
+.image02: &image_for_build  { image: 'golang:1.21.4' }
 .cache01: &build_runner_cache
   <<: *image_for_build
   cache: {
     policy: pull-push, untracked: false, key: "${CACHE_KEY}",
-    paths: [ ".go/pkg/mod/" ] }
+    paths: [ ".go/" ] }
 
 #===============================================================================
 
@@ -30,11 +30,11 @@ stages: [ first, build, deploy, verify, final ]
     - when: on_success
       if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/
     - when: on_success
-      if: $CI_COMMIT_TAG =~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+      if: $CI_COMMIT_TAG =~ /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)$/
     - when: on_success
-      if: $CI_COMMIT_TAG =~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+      if: $CI_COMMIT_TAG =~ /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
     - when: on_success
-      if: $CI_COMMIT_TAG =~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-\w+(\.\w+)*)?(\+\w+(\.\w+)*)?$/
+      if: $CI_COMMIT_TAG =~ /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-\w+(\.\w+)*)?(\+\w+(\.\w+)*)?$/
 .rules_default: &rules_default
   rules:
     - when: manual
@@ -44,7 +44,7 @@ stages: [ first, build, deploy, verify, final ]
 
 .common_layer_functions:
   - &init_common_func |
-    SELF_LIB_VERSION="${GITLAB_CI_LIB_VERSION:-1.4}";
+    SELF_LIB_VERSION="${GITLAB_CI_LIB_VERSION:-release/1.5}";
     SELF_LIB_URL="${SELF_LIB_URL:=https://gitlab.com/wangkang/gitlab-ci-lib/-/raw/${SELF_LIB_VERSION:?}/.gitlab-ci.lib.sh}";
     echo 'SELF_LIB_URL' "${SELF_LIB_URL}";
     . <(curl -s "${SELF_LIB_URL}");
