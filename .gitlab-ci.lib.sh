@@ -1302,6 +1302,7 @@ define_common_deploy_env() {
     local _eth="${DEPLOY_HOST_ETH:-eth0}"
     DEPLOY_HOST_IP=$(/usr/sbin/ifconfig "${_eth}" | grep 'inet ' | awk '{print $2}')
     do_file_replace "${_path:?}" CONTAINER_WORK_DIR DEPLOY_CUSTOMER DEPLOY_HOST_IP DEPLOY_ENV_NAME
+    sed -i -e "s|#DEPLOY_HOST_USER|$(whoami)|g" "${_path}"
     sed -i -e "s|#VAULT_USER|${SERVICE_VAULT_USER}|g" "${_path}"
     sed -i -e "s|#VAULT_PASS|${SERVICE_VAULT_PASS}|g" "${_path}"
     sed -i -e "s|#VAULT_URL|${SERVICE_VAULT_URL}|g" "${_path}"
