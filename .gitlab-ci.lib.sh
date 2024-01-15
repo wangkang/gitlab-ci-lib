@@ -240,11 +240,11 @@ define_util_ssh() {
     ARG_SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY}"
     do_ssh_add_user
     SSH_USER_HOST="${SSH_USER}@${SSH_HOST}"
-  }
-  do_ssh_add_user_upload() {
     [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
     JUMPER_SSH_HOST="$(do_print_variable '' 'JUMPER_SSH_HOST' "${_suffix}")"
     JUMPER_SSH_KNOWN_HOSTS="$(do_print_variable '' 'JUMPER_SSH_KNOWN_HOSTS' "${_suffix}")"
+  }
+  do_ssh_add_user_upload() {
     eval "$(_ssh_user_declare)"
     eval "$(_ssh_user_declare 'UPLOAD')"
     ARG_SSH_USER="${UPLOAD_SSH_USER:=${SSH_USER:?}}"
@@ -256,9 +256,6 @@ define_util_ssh() {
     UPLOAD_USER_HOST="${UPLOAD_USER}@${JUMPER_SSH_HOST}"
   }
   do_ssh_add_user_jumper() {
-    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
-    JUMPER_SSH_HOST="$(do_print_variable '' 'JUMPER_SSH_HOST' "${_suffix}")"
-    JUMPER_SSH_KNOWN_HOSTS="$(do_print_variable '' 'JUMPER_SSH_KNOWN_HOSTS' "${_suffix}")"
     eval "$(_ssh_user_declare)"
     eval "$(_ssh_user_declare 'UPLOAD')"
     eval "$(_ssh_user_declare 'DEPLOY')"
