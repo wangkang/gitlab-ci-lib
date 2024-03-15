@@ -313,7 +313,7 @@ define_util_ssh() {
       _pri_line=$(echo "${ARG_SSH_PRIVATE_KEY}" | tr -d '\n')
       do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60}**"
     }
-    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && _ssh_add_known "${ARG_SSH_HOST}" "${ARG_SSH_KNOWN_HOSTS}"
+    _ssh_add_known "${ARG_SSH_HOST}" "${ARG_SSH_KNOWN_HOSTS}"
     [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
     local _uid='-1'
     local _ssh="ssh -o ConnectTimeout=3 -T ${SSH_DEBUG_OPTIONS}"
@@ -365,6 +365,11 @@ define_util_ssh() {
     set -e
   }
   _ssh_add_known() {
+    local known_hosts="${2}"
+    [ -n "${known_hosts}" ] && {
+      echo "${known_hosts}" >>~/'.ssh/known_hosts'
+      return
+    }
     local host="${1:?}"
     if grep -q "${host}" ~/.ssh/known_hosts; then
       echo "Host key already exists in known_hosts. No need to add."
