@@ -40,7 +40,7 @@ define_util_core() {
     [ -d "${_dir:?}" ] && return
     local _mode="${2:-700}"
     local _hint
-    if ! _hint=$(mkdir -p "${_dir}" && chmod --quiet "${_mode}" "${_dir}" 2>&1); then
+    if ! _hint=$(mkdir -p "${_dir}" && chmod "${_mode}" "${_dir}" 2>&1); then
       do_print_warn "$(do_stack_trace) $ mkdir -p ${_dir}"
       do_print_warn "${_hint}"
     fi
@@ -67,24 +67,24 @@ define_util_core() {
     keep_it_safe() {
       local safe_dir=${1}
       [[ -d "${safe_dir:?}" ]] && {
-        find "${safe_dir}" -type d -exec chmod --quiet 700 {} +
-        find "${safe_dir}" -type f -exec chmod --quiet 600 {} +
+        find "${safe_dir}" -type d -exec chmod -f 700 {} +
+        find "${safe_dir}" -type f -exec chmod -f 600 {} +
       }
     }
     pushd "${_dir}"
-    chmod --quiet o-r,o-w,o-x,g-w './'*
+    chmod -f o-r,o-w,o-x,g-w './'*
     keep_it_safe './etc'
     keep_it_safe './env'
     keep_it_safe './lib'
     keep_it_safe './native'
-    [ -d './bin' ] && find './bin' -type f -exec chmod --quiet 700 {} +
-    [ -d './cmd' ] && find './cmd' -type f -exec chmod --quiet 700 {} +
-    [ -d './log' ] && find './log' -type f -exec chmod --quiet 640 {} +
-    [ -d './log' ] && find './log' -type d -exec chmod --quiet 750 {} +
-    [ -d './www' ] && find './www' -type f -exec chmod --quiet 644 {} +
-    [ -d './www' ] && find './www' -type d -exec chmod --quiet 755 {} +
-    [ -d './dist' ] && find './dist' -type f -exec chmod --quiet 644 {} +
-    [ -d './dist' ] && find './dist' -type d -exec chmod --quiet 755 {} +
+    [ -d './bin' ] && find './bin' -type f -exec chmod -f 700 {} +
+    [ -d './cmd' ] && find './cmd' -type f -exec chmod -f 700 {} +
+    [ -d './log' ] && find './log' -type f -exec chmod -f 640 {} +
+    [ -d './log' ] && find './log' -type d -exec chmod -f 750 {} +
+    [ -d './www' ] && find './www' -type f -exec chmod -f 644 {} +
+    [ -d './www' ] && find './www' -type d -exec chmod -f 755 {} +
+    [ -d './dist' ] && find './dist' -type f -exec chmod -f 644 {} +
+    [ -d './dist' ] && find './dist' -type d -exec chmod -f 755 {} +
     popd
     do_print_trace "$(do_stack_trace)" "${_dir}" 'Done'
   }
@@ -117,7 +117,7 @@ define_util_core() {
   }
   do_diff() {
     printf "\033[0;34m%s\033[0m\n" "# ${FUNCNAME[0]} '${1:?}' '${2:?}'"
-    [ ! -f "${1}" ] && touch "${1}" && chmod --quiet 600 "${1}" && ls -lh "${1}"
+    [ ! -f "${1}" ] && touch "${1}" && chmod -f 600 "${1}" && ls -lh "${1}"
     local _status
     set +e +o pipefail
     diff --unchanged-line-format='' \
@@ -143,7 +143,7 @@ define_util_core() {
   do_write_file() {
     local _path="${1}"
     local _file_content="${2}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod --quiet 660 "${_path}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod -f 660 "${_path}"
     ls -lh "${_path}"
     printf '%s\n' "${_file_content:?}" >"${_path}"
     ls -lh "${_path}"
@@ -153,7 +153,7 @@ define_util_core() {
     local _path="${1}"
     local _line="${*:2}"
     _line="[$(date +'%Y-%m-%d %T %Z')] ${_line:?}"
-    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod --quiet 640 "${_path}"
+    [ ! -f "${_path:?}" ] && touch "${_path}" && chmod -f 640 "${_path}"
     echo "${_line}" >>"${_path}"
     tail -3 "${_path}"
     local _lines
@@ -240,17 +240,20 @@ define_util_ssh() {
     ARG_SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY}"
     do_ssh_add_user
     SSH_USER_HOST="${SSH_USER}@${SSH_HOST}"
+    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
+    JUMPER_SSH_HOST="$(do_print_variable '' 'JUMPER_SSH_HOST' "${_suffix}")"
+    JUMPER_SSH_KNOWN_HOSTS="$(do_print_variable '' 'JUMPER_SSH_KNOWN_HOSTS' "${_suffix}")"
   }
   do_ssh_add_user_upload() {
     eval "$(_ssh_user_declare)"
     eval "$(_ssh_user_declare 'UPLOAD')"
     ARG_SSH_USER="${UPLOAD_SSH_USER:=${SSH_USER:?}}"
     ARG_SSH_PRIVATE_KEY="${UPLOAD_SSH_PRIVATE_KEY:=${SSH_PRIVATE_KEY}}"
-    ARG_SSH_HOST="${UPLOAD_SSH_HOST:=${JUMPER_SSH_HOST:-${SSH_HOST:?}}}"
-    ARG_SSH_KNOWN_HOSTS="${UPLOAD_SSH_KNOWN_HOSTS:=${JUMPER_SSH_KNOWN_HOSTS:-${SSH_KNOWN_HOSTS}}}"
+    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
+    ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
     do_ssh_add_user
     UPLOAD_USER="${UPLOAD_SSH_USER}"
-    UPLOAD_USER_HOST="${UPLOAD_USER}@${UPLOAD_SSH_HOST}"
+    UPLOAD_USER_HOST="${UPLOAD_USER}@${JUMPER_SSH_HOST}"
   }
   do_ssh_add_user_jumper() {
     eval "$(_ssh_user_declare)"
@@ -280,8 +283,8 @@ define_util_ssh() {
     set -e
     mkdir -p ~/.ssh
     touch ~/.ssh/known_hosts
-    chmod --quiet 644 ~/'.ssh/known_hosts'
-    chmod --quiet 700 ~/'.ssh'
+    chmod 644 ~/'.ssh/known_hosts'
+    chmod 700 ~/'.ssh'
   }
   do_ssh_add_user() {
     do_print_info "$(do_stack_trace)"
@@ -310,7 +313,7 @@ define_util_ssh() {
       _pri_line=$(echo "${ARG_SSH_PRIVATE_KEY}" | tr -d '\n')
       do_print_dash_pair 'SSH_PRIVATE_KEY' "${_pri_line:0:60}**"
     }
-    [ -n "${ARG_SSH_KNOWN_HOSTS}" ] && _ssh_add_known "${ARG_SSH_KNOWN_HOSTS}"
+    _ssh_add_known "${ARG_SSH_HOST}" "${ARG_SSH_KNOWN_HOSTS}"
     [ -n "${ARG_SSH_PRIVATE_KEY}" ] && _ssh_add_key "${ARG_SSH_PRIVATE_KEY}"
     local _uid='-1'
     local _ssh="ssh -o ConnectTimeout=3 -T ${SSH_DEBUG_OPTIONS}"
@@ -362,7 +365,18 @@ define_util_ssh() {
     set -e
   }
   _ssh_add_known() {
-    echo "${1:?}" >>~/'.ssh/known_hosts'
+    local known_hosts="${2}"
+    [ -n "${known_hosts}" ] && {
+      echo "${known_hosts}" >>~/'.ssh/known_hosts'
+      return
+    }
+    local host="${1:?}"
+    if grep -q "${host}" ~/.ssh/known_hosts; then
+      echo "Host key already exists in known_hosts. No need to add."
+    else
+      echo "Host key does not exist in known_hosts. Adding..."
+      ssh-keyscan "${host}" 2>/dev/null >>~/.ssh/known_hosts
+    fi
   }
 }
 
@@ -719,10 +733,14 @@ define_common_init_ssh() {
   define_util_ssh
   do_ssh_upload_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
   do_ssh_jumper_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
-  do_ssh_server_invoke() { do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"; }
+  do_ssh_server_invoke() {
+    do_ssh_invoke "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
+  }
   do_ssh_upload_exec() { do_ssh_exec "$(do_ssh_exec_chain "${UPLOAD_USER_HOST:?}")" "${@}"; }
   do_ssh_jumper_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}")" "${@}"; }
-  do_ssh_server_exec() { do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"; }
+  do_ssh_server_exec() {
+    do_ssh_exec "$(do_ssh_exec_chain "${JUMPER_USER_HOST:?}" "${SERVICE_USER_HOST:?}")" "${@}"
+  }
   init_ssh_do() {
     do_ssh_agent_init
     do_ssh_add_user_default
@@ -737,7 +755,8 @@ define_common_build() {
     # shellcheck disable=SC2034
     local CD_ENVIRONMENT="${ENV_NAME:-none}"
     do_file_replace "${_template_file}" CD_ENVIRONMENT CD_VERSION_TAG \
-      CI_COMMIT_TAG CI_PIPELINE_IID CI_PIPELINE_ID CI_JOB_ID CI_COMMIT_REF_NAME CI_COMMIT_SHA CI_COMMIT_SHORT_SHA
+      CI_COMMIT_TAG CI_PIPELINE_IID CI_PIPELINE_ID CI_JOB_ID CI_COMMIT_REF_NAME \
+      CI_COMMIT_SHA CI_COMMIT_SHORT_SHA
     do_print_info 'BUILD CI/CD INFO DONE'
   }
 }
@@ -769,7 +788,7 @@ define_common_upload() {
     do_print_info 'UPLOAD SERVICE ENV DONE' "[${1}]"
   }
   do_upload_copy_dir() {
-    local _link='cp --preserve --recursive --link'
+    local _link='cp -p -R -l'
     local service=${1}
     local service_group=${2}
     local _dir="${CI_PROJECT_DIR:?}/deploy/${service_group:?}"
@@ -786,7 +805,7 @@ define_common_upload() {
     set -e
   }
   do_upload_copy_file() {
-    local _link='cp --preserve --recursive --link'
+    local _link='cp -p -R -l'
     local _file_type="${1}"
     local _file_path="${2}"
     local _file_path="${CI_PROJECT_DIR:?}/${_file_path:?}"
@@ -808,15 +827,15 @@ define_common_upload() {
     do_upload_cleanup_local
   }
   upload_scp_hook_do() {
-    find "${_remote_dir:?}" -type d -exec chmod --quiet 774 {} +
-    find "${_remote_dir:?}" -type f -exec chmod --quiet 660 {} +
+    find "${_remote_dir:?}" -type d -exec chmod -f 774 {} +
+    find "${_remote_dir:?}" -type f -exec chmod -f 660 {} +
     do_dir_list "${_remote_dir:?}"
   }
   upload_cd_version_file_do() {
     local _dir="${1}"
     local _version="${2}"
     local _path="${_dir:?}/CD_VERSION"
-    touch "${_path}" && echo "${_version:?}" >"${_path}" && chmod --quiet 640 "${_path}"
+    touch "${_path}" && echo "${_version:?}" >"${_path}" && chmod -f 640 "${_path}"
   }
 } # define_common_upload
 
@@ -1034,7 +1053,8 @@ define_common_deploy() {
     fi
   }
   deploy_service_jumper_do() {
-    local _cd_log_line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] [${CI_PIPELINE_IID:-CI_PIPELINE_ID} ${CI_JOB_ID}]"
+    local _cd_log_line="[${VERSION_DEPLOYING}] [${CI_JOB_STAGE} ${CI_JOB_NAME}] \
+    [${CI_PIPELINE_IID:-CI_PIPELINE_ID} ${CI_JOB_ID}]"
     do_ssh_export_clear
     do_ssh_export do_print_trace do_print_warn do_print_colorful
     do_ssh_export do_dir_make do_dir_list do_dir_chmod do_dir_scp do_write_log_file
@@ -1072,7 +1092,8 @@ define_common_deploy() {
     }
     export -f do_dir_scp_hook
     set +e
-    do_dir_scp "${SERVICE_UPLOAD_DIR:?}" "${SERVICE_DEPLOY_DIR:?}" "${SERVICE_USER_HOST:?}" 'do_dir_scp_hook' "${SERVICE_DIR:?}"
+    do_dir_scp "${SERVICE_UPLOAD_DIR:?}" "${SERVICE_DEPLOY_DIR:?}" "${SERVICE_USER_HOST:?}" \
+      'do_dir_scp_hook' "${SERVICE_DIR:?}"
     local _status=${?}
     set -e
     local _head='# do_dir_scp exit with status'
@@ -1183,7 +1204,7 @@ define_common_deploy_env() {
       return 9
     }
     do_dir_scp_hook() {
-      chmod --quiet 600 "${_remote_dir}"/*
+      chmod -f 600 "${_remote_dir}"/*
       do_dir_list "${_remote_dir}"
     }
     export -f do_dir_scp_hook
@@ -1202,6 +1223,7 @@ define_common_deploy_env() {
     do_ssh_export do_file_replace do_diff
     do_ssh_export deploy_env_reset_do deploy_env_diff_do deploy_env_replace_do deploy_env_backup_do
     do_ssh_export CUSTOMER ENV_NAME CONTAINER_WORK_DIR _remote_dir _service_group_lower
+    do_ssh_export DEPLOY_HOST_ETH
     do_ssh_export SERVICE_GROUP SERVICE_GROUP_DIR ENV_DEPLOY_DIR
     init_service_vault_do
     do_ssh_export SERVICE_VAULT_USER SERVICE_VAULT_PASS SERVICE_VAULT_URL SERVICE_VAULT_PATH
@@ -1247,7 +1269,7 @@ define_common_deploy_env() {
       do_print_trace "# ${FUNCNAME[0]} cancelled: not changed"
       return
     fi
-    local _cp="cp --preserve -f"
+    local _cp="cp -p -f"
     if [ 'yes' = "${_is_first}" ]; then
       do_print_trace "# ${FUNCNAME[0]}: first deployment"
       ${_cp} "${_compose_yml_new:?}" "${_compose_yml_old:?}"
@@ -1285,8 +1307,10 @@ define_common_deploy_env() {
     declare -rx DEPLOY_ENV_NAME="${ENV_NAME}"
     declare -rx DEPLOY_CUSTOMER="${CUSTOMER}"
     declare -x DEPLOY_HOST_IP='127.0.0.1'
-    DEPLOY_HOST_IP=$(/usr/sbin/ifconfig eth0 | grep 'inet ' | awk '{print $2}')
+    local _eth="${DEPLOY_HOST_ETH:-eth0}"
+    DEPLOY_HOST_IP=$(/usr/sbin/ifconfig "${_eth}" | grep 'inet ' | awk '{print $2}')
     do_file_replace "${_path:?}" CONTAINER_WORK_DIR DEPLOY_CUSTOMER DEPLOY_HOST_IP DEPLOY_ENV_NAME
+    sed -i -e "s|#DEPLOY_HOST_USER|$(whoami)|g" "${_path}"
     sed -i -e "s|#VAULT_USER|${SERVICE_VAULT_USER}|g" "${_path}"
     sed -i -e "s|#VAULT_PASS|${SERVICE_VAULT_PASS}|g" "${_path}"
     sed -i -e "s|#VAULT_URL|${SERVICE_VAULT_URL}|g" "${_path}"
@@ -1298,9 +1322,9 @@ define_common_deploy_env() {
     local _path="${_compose_yml_old:?}"
     [ ! -f "${_path}" ] && return
     cd "${SERVICE_GROUP_DIR:?}"
-    cp --preserve "${_path}" "${ENV_BACKUP_DIR}/${_compose_yml_name}"
+    cp -p "${_path}" "${ENV_BACKUP_DIR}/${_compose_yml_name}"
     local _path="${_compose_env_old:?}"
-    [ -f "${_path}" ] && cp --preserve "${_path}" "${ENV_BACKUP_DIR}/${_compose_env_name:?}"
+    [ -f "${_path}" ] && cp -p "${_path}" "${ENV_BACKUP_DIR}/${_compose_env_name:?}"
     find . -type l -ls >"${ENV_BACKUP_DIR}/cd_version_linked"
     backup_cd_version() {
       cd "${SERVICE_GROUP_DIR:?}"
