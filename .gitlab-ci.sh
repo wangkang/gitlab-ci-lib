@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# shellcheck disable=SC2317
+#===============================================================================
+
 define_custom_init() {
   init_first_custom_do() {
     do_print_warn "$(do_stack_trace)" 'TODO ...'

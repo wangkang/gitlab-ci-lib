@@ -1,8 +1,9 @@
 #!/bin/bash
 
-set -eo pipefail
-
+# shellcheck disable=SC2317
 #===============================================================================
+
+set -eo pipefail
 
 define_util_core() {
   do_nothing() { :; }
@@ -24,7 +25,7 @@ define_util_core() {
     local _func_name="${1}"
     if [ "$(type -t "${_func_name:?}")" != function ]; then
       do_print_trace "# $_func_name is an absent function"
-    else eval "${@}"; fi
+    else "${@}" || exit; fi
   }
   do_dir_list() {
     do_print_trace "$(do_stack_trace)" "$(date +'%T')"
