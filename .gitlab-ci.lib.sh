@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # shellcheck disable=SC2317
 #===============================================================================
@@ -26,6 +26,19 @@ define_util_core() {
     if [ "$(type -t "${_func_name:?}")" != function ]; then
       do_print_trace "# $_func_name is an absent function"
     else "${@}" || exit; fi
+  }
+  do_func_invoke_here() {
+    local _func_name="${1}"
+    local _input
+    while IFS= read -r line; do _input+=" ${line}"; done
+    IFS=' ' read -r -a _input_array <<<"${_input}"
+    do_func_invoke "${_func_name:?}" "${@:2}" "${_input_array[@]}"
+  }
+  do_eval_here() {
+    local _input
+    _input=$(cat)
+    _input=$(printf '%s' "${_input}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    eval "${_input}"
   }
   do_dir_list() {
     do_print_trace "$(do_stack_trace)" "$(date +'%T')"
