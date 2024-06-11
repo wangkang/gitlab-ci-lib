@@ -111,7 +111,7 @@ define_util_core() {
     do_ssh_export do_print_trace do_print_warn do_print_colorful
     do_ssh_invoke "$(do_ssh_exec_chain "${_user_host:?}")" do_dir_make "'${_remote_dir}'"
     local _status="${?}"
-    [ ! ${_status} ] && return ${_status}
+    [ "${_status}" -ne 0 ] && return "${_status}"
     do_dir_list "${_local_dir:?}"
     if ! scp -rpC -o StrictHostKeyChecking=no "${_local_dir}/"* "${_user_host}:${_remote_dir:?}/"; then
       do_print_warn "scp to ${_user_host}:${_remote_dir:?}/ failed"
@@ -125,7 +125,7 @@ define_util_core() {
         do_ssh_export_clear
       fi
       local _status="${?}"
-      [ ! ${_status} ] && return ${_status}
+      [ "${_status}" -ne 0 ] && return "${_status}"
     fi
     do_ssh_export_clear
   }
@@ -236,6 +236,7 @@ define_util_ssh() {
     /bin/echo "${_command}" | ${_ssh} -- /bin/bash -eo pipefail -s -
   }
   do_ssh_exec_here() {
+    local _ssh, _input
     _ssh="$(do_ssh_exec_chain "${@}")"
     _input="$(timeout 2s cat /dev/stdin || true)"
     _input=$(printf '%s' "${_input}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')
@@ -243,7 +244,7 @@ define_util_ssh() {
       _input=$(printf '%s\n%s' "## From stdin (here documents ...)" "${_input}")
       do_ssh_exec "${_ssh}" "${_input}"
     else
-      printf '%s %s\n' "Empty stdin, canceled." "$(echo -n "${FUNCNAME[*]} " | tac -s ' ')" >&2
+      printf '%s %s\n' "Empty stdin, canceled." "$(do_stack_trace)" >&2
     fi
   }
   do_ssh_add_user_default() {
@@ -335,7 +336,7 @@ define_util_ssh() {
     _uid=$($_ssh "${_user_host}" 'id') && do_print_info "SSH ADD USER OK ($_uid)"
     local _status="${?}"
     set -e
-    if [ 0 = ${_status} ]; then
+    if [ 0 = "${_status}" ]; then
       if [[ ! "${ADDED_USER_HOST[*]}" =~ ${_user_host} ]]; then
         ADDED_USER_HOST+=("${_user_host}")
       fi
@@ -386,7 +387,7 @@ define_util_ssh() {
     }
     local host="${1:?}"
     if grep -q "${host}" ~/.ssh/known_hosts; then
-      echo "Host key already exists in known_hosts. No need to add."
+      do_print_info "Host key already exists in known_hosts. No need to add."
     else
       echo "Host key does not exist in known_hosts. Adding..."
       ssh-keyscan "${host}" 2>/dev/null >>~/.ssh/known_hosts
@@ -595,7 +596,11 @@ define_util_print() {
     if [ ${#} -gt 0 ]; then
       local _n=$((${#FUNCNAME[@]} - 2))
       local _stack
-      _stack="$(whoami)@$(hostname) --> $(echo -n "${FUNCNAME[*]:1:${_n}} " | tac -s ' ')"
+      if [ -z "$(command -v tac)" ]; then
+        _stack="$(whoami)@$(hostname) --> $(echo -n "${FUNCNAME[*]:1:${_n}} ")"
+      else
+        _stack="$(whoami)@$(hostname) --> $(echo -n "${FUNCNAME[*]:1:${_n}} " | tac -s ' ')"
+      fi
       printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG BEGIN --' "${_stack}" >&2
       printf "%s\n" "${@}" | awk '{printf "#%3d| \033[0;35m%s\033[0m\n", NR, $0}' >&2
       printf "#---- ${_color}%s-- %s${_clear}\n" 'DEBUG END ----' "${_stack}" >&2
@@ -1095,7 +1100,7 @@ define_common_deploy() {
     0) do_print_trace "${_head} ${_status} (ok)" ;;
     *) do_print_warn "${_head} ${_status} (unknown status)" ;;
     esac
-    [ 0 != ${_status} ] && return ${_status}
+    [ "${_status}" -ne 0 ] && return "${_status}"
     do_dir_scp_hook() {
       set +e
       do_dir_chmod "${_remote_dir}"
@@ -1115,7 +1120,7 @@ define_common_deploy() {
     0) do_print_trace "${_head} ${_status} (ok)" ;;
     *) do_print_trace "${_head} ${_status} (unknown status)" ;;
     esac
-    [ 0 = ${_status} ] && {
+    [ 0 = "${_status}" ] && {
       do_print_trace 'WRITE DEPLOY LOG'
       local _path="${SERVICE_DEPLOY_DIR:?}/CD_VERSION_LOG"
       do_ssh_export_clear
@@ -1232,7 +1237,7 @@ define_common_deploy_env() {
     _service_group_lower="$(echo "${SERVICE_GROUP}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
     set +e
     do_ssh_export_clear
-    for i in ${DEPLOY_ENV_HOOK_EXPORT[*]}; do do_ssh_export "${i}"; done
+    for i in "${DEPLOY_ENV_HOOK_EXPORT[@]}"; do do_ssh_export "${i}"; done
     do_ssh_export do_print_trace do_print_info do_print_warn do_print_colorful do_func_invoke
     do_ssh_export do_file_replace do_diff
     do_ssh_export deploy_env_reset_do deploy_env_diff_do deploy_env_replace_do deploy_env_backup_do
@@ -1295,7 +1300,7 @@ define_common_deploy_env() {
       ${_compose_cmd} down
       local _status=${?}
       do_print_trace "# ${_compose_cmd} down exited with status ${_status}"
-      [ ${_status} ] && {
+      [ 0 = "${_status}" ] && {
         ENV_BACKUP_DIR="${SERVICE_GROUP_DIR:?}/env-backup/$(date +'%Y%m%d.%H%M%S')"
         deploy_env_backup_do
         ${_cp} "${_compose_yml_new:?}" "${_compose_yml_old:?}"
