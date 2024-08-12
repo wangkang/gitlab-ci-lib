@@ -653,6 +653,10 @@ define_common_init() {
     do_print_section 'INIT ALL BEGIN'
     _init_env_var
     _init_version_tag
+    local _prefix=''
+    local _suffix
+    [ -n "${ENV_NAME}" ] && _suffix="_$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
+    DEPLOY_HOST_ETH="$(do_print_variable "${_prefix}" 'DEPLOY_HOST_ETH' "${_suffix}")"
   }
   init_final_do() {
     do_func_invoke 'init_final_custom_do'
