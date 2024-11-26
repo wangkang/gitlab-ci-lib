@@ -1,1 +1,1 @@
-include: '/template/maven.gitlab-ci.yml'
+include: '/template/golang.gitlab-ci.yml'
