@@ -1,0 +1,59 @@
+name: Test
+
+on:
+  push:
+    branches: [ "main", "release/1.6" ]
+  pull_request:
+    branches: [ "main", "release/1.6" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [
+          ubuntu-latest,
+          macos-13,
+          windows-2022,
+        ]
+      fail-fast: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Test
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          source .gitlab-ci.lib.sh
+          define_common_init
+          define_common_init_ssh
+          define_common_upload
+          define_common_service
+          define_common_deploy
+          define_common_deploy_env
+          define_common_verify
+          source .gitlab-ci.sh
+          define_custom_init
+          define_custom_build
+          define_custom_upload
+          define_custom_deploy
+          define_custom_verify
+          declare -xr CUSTOMER="${CUSTOMER:-any}"
+          declare -xr ENV_NAME="${ENV_NAME:-testing}"
+          declare -xr CI_PIPELINE_ID='789'
+          declare -xr CI_COMMIT_REF_NAME='release/1.6'
+          declare -xr CI_COMMIT_TAG='abcde567'
+          declare -xr CI_PROJECT_DIR=${{ github.workspace }}
+          init_first_do
+          init_ssh_do
+          init_inject_ci_bash_do
+          init_final_do
+          build_job_do
+          declare -xr SSH_USER='deploy'
+          declare -xr SSH_HOST='example.com'
+          upload_job_do
+          deploy_job_do
+          verify_job_do

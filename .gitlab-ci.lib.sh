@@ -390,7 +390,9 @@ define_util_ssh() {
       do_print_info "Host key already exists in known_hosts. No need to add."
     else
       echo "Host key does not exist in known_hosts. Adding..."
+      set +e
       ssh-keyscan "${host}" 2>/dev/null >>~/.ssh/known_hosts
+      set -e
     fi
   }
 }
