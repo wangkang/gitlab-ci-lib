@@ -52,8 +52,6 @@ jobs:
           init_inject_ci_bash_do
           init_final_do
           build_job_do
-          declare -xr SSH_USER='deploy'
-          declare -xr SSH_HOST='example.com'
           upload_job_do
           deploy_job_do
           verify_job_do

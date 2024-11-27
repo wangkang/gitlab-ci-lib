@@ -262,9 +262,11 @@ define_util_ssh() {
   do_ssh_add_user_upload() {
     eval "$(_ssh_user_declare)"
     eval "$(_ssh_user_declare 'UPLOAD')"
-    ARG_SSH_USER="${UPLOAD_SSH_USER:=${SSH_USER:?}}"
+    ARG_SSH_USER="${UPLOAD_SSH_USER:=${SSH_USER}}"
+    [ -z "${ARG_SSH_USER}" ] && return
     ARG_SSH_PRIVATE_KEY="${UPLOAD_SSH_PRIVATE_KEY:=${SSH_PRIVATE_KEY}}"
-    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
+    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST}}"
+    [ -z "${ARG_SSH_HOST}" ] && return
     ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
     do_ssh_add_user
     UPLOAD_USER="${UPLOAD_SSH_USER}"
@@ -274,9 +276,11 @@ define_util_ssh() {
     eval "$(_ssh_user_declare)"
     eval "$(_ssh_user_declare 'UPLOAD')"
     eval "$(_ssh_user_declare 'DEPLOY')"
-    ARG_SSH_USER="${DEPLOY_SSH_USER:=${UPLOAD_SSH_USER:=${SSH_USER:?}}}"
+    ARG_SSH_USER="${DEPLOY_SSH_USER:=${UPLOAD_SSH_USER:=${SSH_USER}}}"
+    [ -z "${ARG_SSH_USER}" ] && return
     ARG_SSH_PRIVATE_KEY="${DEPLOY_SSH_PRIVATE_KEY:-${UPLOAD_SSH_PRIVATE_KEY:-${SSH_PRIVATE_KEY}}}"
-    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST:?}}"
+    ARG_SSH_HOST="${JUMPER_SSH_HOST:=${SSH_HOST}}"
+    [ -z "${ARG_SSH_HOST}" ] && return
     ARG_SSH_KNOWN_HOSTS="${JUMPER_SSH_KNOWN_HOSTS:=${SSH_KNOWN_HOSTS}}"
     do_ssh_add_user
     UPLOAD_USER="${UPLOAD_SSH_USER:-${ARG_SSH_USER}}"
