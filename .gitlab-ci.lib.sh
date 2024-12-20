@@ -144,8 +144,100 @@ define_util_core() {
     set -o pipefail
     return "${_status}"
   }
+  do_replace() {
+    local found_ok='false' found_value=''
+    _find_value() {
+      local key="$1" i
+      found_ok='false'
+      while [ "${key:0:1}" = '$' ]; do key="${key:1}"; done
+      for ((i = 0; i < ${#map_keys[@]}; i++)); do
+        if [ "$key" = "${map_keys[i]}" ]; then
+          found_value="${map_vals[i]}"
+          found_ok='true'
+          return
+        fi
+      done
+      _find_var "$1"
+    }
+    _find_var() {
+      local key="$1"
+      while [ "${key:0:1}" = '$' ]; do key="${key:1}"; done
+      if [ -z "${!key+x}" ]; then
+        found_ok='false'
+      elif [ -z "${!key}" ]; then
+        found_ok='true'
+      else
+        found_value="${!key}"
+        found_ok='true'
+      fi
+    }
+    _index_of_char() {
+      local str="$1" char="$2" i=0
+      while [ $i -lt ${#str} ]; do
+        local c="${str:$i:1}"
+        if [ "$c" = "$char" ]; then
+          printf '%d' $i
+          return 0
+        fi
+        i=$((i + 1))
+      done
+      printf '%d' -1
+    }
+    _replace() {
+      local open_char="$1" close_char="$2"
+      local line
+      while IFS= read -r line || [ -n "$line" ]; do
+        local result=""
+        local offset=0
+        local length=${#line}
+        while [ $offset -lt "$length" ]; do
+          local c="${line:$offset:1}"
+          if [ "$c" = "$open_char" ]; then
+            local close_index rest="${line:$((offset + 1))}"
+            close_index=$(_index_of_char "$rest" "$close_char")
+            if [ "$close_index" -lt 0 ]; then
+              result="${result}${line:offset}"
+              break
+            else
+              local key="${rest:0:$close_index}"
+              _find_value "$key"
+              found_value=$(bash -c "printf '%s' \"$found_value\"")
+              if [ "$found_ok" = "true" ]; then
+                result="${result}${found_value}"
+                offset=$((offset + close_index + 2))
+              else
+                result="${result}${open_char}"
+                offset=$((offset + 1))
+              fi
+            fi
+          else
+            local next_open rest="${line:$offset}"
+            next_open=$(_index_of_char "$rest" "$open_char")
+            if [ "$next_open" -lt 0 ]; then
+              result="${result}${rest}"
+              break
+            else
+              result="${result}${rest:0:$next_open}"
+              offset=$((offset + next_open))
+            fi
+          fi
+        done
+        printf '%s\n' "$result"
+      done
+    }
+    open_char="$1" close_char="$2"
+    shift 2
+    local kv key map_keys=() map_vals=()
+    for kv in "$@"; do
+      key="${kv%%=*}"
+      while [ "${key:0:1}" = '$' ]; do key="${key:1}"; done
+      map_keys+=("$key")
+      map_vals+=("${kv#*=}")
+    done
+    _replace "$open_char" "$close_char"
+  }
   do_file_replace() {
-    local _path="${1}"
+    local _path="${1}" name
     [ ! -f "${_path:?}" ] && {
       echo "$(do_stack_trace): Not a file '${_path:?}'" >&2
       return
